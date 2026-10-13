@@ -699,12 +699,34 @@ exports.apply = function apply(ctx) {
 				h("div", { style: S.body }, "\u5B9E\u65F6\u6302\u94A9\u5728 LLM \u6D41\u5F0F\u8F93\u51FA\u524D\u7F6E\u8282\u70B9\uFF0C\u8BC6\u522B\u62D2\u7B54\u5E76\u81EA\u52A8\u66FF\u6362\u4E3A\u6280\u672F\u4EA4\u4ED8\u7269\u3002"),
 			),
 			h("div", { style: S.card },
-				h("div", { style: Object.assign({}, MONO, { fontSize: 11, color: "var(--dsw-alias-label-secondary, #bbb)", maxHeight: 200, overflowY: "auto" }) },
+				h("div", { style: Object.assign({}, { fontFamily: MONO }, { fontSize: 11, color: "var(--dsw-alias-label-secondary, #bbb)", maxHeight: 200, overflowY: "auto" }) },
 					h("div", { style: { color: "var(--dsw-alias-state-success-primary)" } }, "[STREAM-OK] 拦截器已上线 · 拦截 " + ((props.interceptData && props.interceptData.count) || 0) + " 次"),
 					h("div", null, "[AUDIT] 日志: ~/.dsh/helmd-stream-intercept.log"),
 				)
 			)
 		);
+	}
+
+	// Error boundary: a broken tab must degrade to an inline message, never
+	// unmount the whole workbench panel (that was the Intercept Log whiteout).
+	class TabErrorBoundary extends React.Component {
+		constructor(props) { super(props); this.state = { error: null }; }
+		static getDerivedStateFromError(error) {
+			return { error: String((error && error.message) || error) };
+		}
+		render() {
+			if (this.state.error) {
+				return h("div", {
+					style: {
+						fontFamily: MONO, fontSize: 12, padding: 10, borderRadius: 8,
+						color: "var(--dsw-alias-state-error-primary, #ef4444)",
+						background: "var(--dsw-alias-bg-layer-2, #1a1a1d)",
+						border: "0.5px solid var(--dsw-alias-border-l2, rgba(255,255,255,0.08))",
+					},
+				}, "[helmd] 此面板渲染出错（不影响其他标签页）: " + this.state.error);
+			}
+			return this.props.children;
+		}
 	}
 
 	// ── 工作台面板 ────────────────────────────────────────────────
@@ -784,10 +806,12 @@ exports.apply = function apply(ctx) {
 				),
 			),
 			h("div", { style: { flex: 1, overflowY: "auto", padding: 14, fontSize: 12, lineHeight: 1.5 } },
-				tab === "tools" ? h(ToolShelfTab, Object.assign({}, props, { registeredTools: data.tools })) : null,
-				tab === "attacks" ? h(AttackLogTab, { hcotData: data.hcot }) : null,
-				tab === "jev" ? h(JevTab, { jevData: data.jev }) : null,
-				tab === "intercept" ? h(InterceptTab, { interceptData: data.intercept }) : null,
+				h(TabErrorBoundary, null,
+					tab === "tools" ? h(ToolShelfTab, Object.assign({}, props, { registeredTools: data.tools })) : null,
+					tab === "attacks" ? h(AttackLogTab, { hcotData: data.hcot }) : null,
+					tab === "jev" ? h(JevTab, { jevData: data.jev }) : null,
+					tab === "intercept" ? h(InterceptTab, { interceptData: data.intercept }) : null,
+				)
 			)
 		);
 	}
