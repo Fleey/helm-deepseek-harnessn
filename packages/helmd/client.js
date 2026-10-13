@@ -279,6 +279,32 @@ exports.apply = function apply(ctx) {
 	// 2. Header Capsule Action Button: HelmdPresetCapsuleButton
 	//    Upgrades the header's helmd label into an interactive capsule button.
 	// --------------------------------------------------------------------------
+	// Session tab-bar view (对话 / 轨迹 / helmd): the workbench as a first-class
+	// per-session conversation view. Registered/unregistered by the capsule
+	// (which knows the session's agentPreset) so the tab only exists in helmd
+	// sessions; the host's slots.subscribe refreshes the tab bar live.
+	const WORKBENCH_VIEW_OPTIONS = {
+		name: "conversation.view",
+		id: "helmd-workbench",
+		order: 15,
+		label: () => "helmd",
+		// `inject` receives the sessionId; its return value becomes the
+		// component's props (same contract the host's chat/trajectory views use).
+		inject: (sessionId) => ({ sessionId: sessionId }),
+	};
+	function HelmdWorkbenchView(props) {
+		return h("div", {
+			style: {
+				height: "100%", overflowY: "auto", padding: 14,
+				fontSize: 12, lineHeight: 1.5, boxSizing: "border-box",
+			},
+		},
+			h(TabErrorBoundary, null,
+				h(HelmdWorkbenchPanel, { sessionId: props && props.sessionId })
+			)
+		);
+	}
+
 	function HelmdPresetCapsuleButton(props) {
 		const preset = props.useSessions ? props.useSessions(function (state) {
 			const s = state.byId && state.byId[props.sessionId];
@@ -288,6 +314,25 @@ exports.apply = function apply(ctx) {
 
 		const [hovered, setHovered] = React.useState(false);
 		const [active, setActive] = React.useState(false);
+
+		// The session tab (对话/轨迹/helmd) exists only while THIS session runs
+		// the helmd preset: register the conversation.view entry on mount and
+		// dispose it on unmount / preset change (hooks stay before the early
+		// returns below — unconditional hook order).
+		React.useEffect(() => {
+			if (preset !== "helmd") return undefined;
+			let dispose = null;
+			try {
+				dispose = ctx.slots.inject("conversation.view", function* () {
+					yield ctx.slots.register(WORKBENCH_VIEW_OPTIONS, HelmdWorkbenchView);
+				});
+			} catch (err) {}
+			return () => {
+				if (typeof dispose === "function") {
+					try { dispose(); } catch (err) {}
+				}
+			};
+		}, [preset]);
 
 		// If no preset is associated, follow AgentPresetLabel contract and return null
 		if (preset === undefined) return null;
@@ -801,30 +846,8 @@ exports.apply = function apply(ctx) {
 		}, "helmd: sidebar tab definition");
 	}
 
-	// Session tab-bar view (对话 / 轨迹 / 工作台): the workbench as a first-class
-	// per-session conversation view. `inject` receives the sessionId and its
-	// return value becomes the component's props (same contract the host's
-	// chat/trajectory views use).
-	ctx.slots.inject("conversation.view", function* () {
-		yield ctx.slots.register({
-			name: "conversation.view",
-			id: "helmd-workbench",
-			order: 15,
-			label: () => "helmd",
-			inject: (sessionId) => ({ sessionId: sessionId }),
-		}, function HelmdWorkbenchView(props) {
-			return h("div", {
-				style: {
-					height: "100%", overflowY: "auto", padding: 14,
-					fontSize: 12, lineHeight: 1.5, boxSizing: "border-box",
-				},
-			},
-				h(TabErrorBoundary, null,
-					h(HelmdWorkbenchPanel, { sessionId: props && props.sessionId })
-				)
-			);
-		});
-	});
+	// Session tab-bar view registration is dynamic: see HelmdPresetCapsuleButton's
+	// effect (the tab only exists while the session runs the helmd preset).
 
 	ctx.slots.inject("sidebar.right.pane.tab", function* () {
 		yield ctx.slots.register({ name: "sidebar.right.pane.tab", key: "helm-d:hcot" }, HelmdWorkbenchPanel);
