@@ -26,6 +26,7 @@
 import { createHash } from 'node:crypto'
 import { spawnSync } from 'node:child_process'
 import { copyFileSync, existsSync, readFileSync } from 'node:fs'
+import { homedir } from 'node:os'
 import { join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import type { Context } from '@deepseek-ai/cordis'
@@ -80,10 +81,31 @@ function locateHostStandard(): string | null {
   const env = process.env.DSH_HOST_STANDARD_YML
   if (env && existsSync(env)) return env
   const bases = [
+    // DSH Desktop / DSH NEXT vendor the host unpacked under <app resources>/app;
+    // running inside the desktop host, process.resourcesPath IS that directory —
+    // the precise probe, no name guessing.
+    (process as unknown as { resourcesPath?: string }).resourcesPath
+      ? join((process as unknown as { resourcesPath: string }).resourcesPath, 'app', 'node_modules')
+      : '',
     process.env.APPDATA ? join(process.env.APPDATA, 'npm', 'node_modules') : '',
     '/usr/local/lib/node_modules',
     '/usr/lib/node_modules',
   ]
+  // Desktop app locations when this file runs out-of-process (setup scripts via
+  // Electron RunAsNode) or the desktop build's resourcesPath layout differs.
+  const home = homedir()
+  if (process.platform === 'darwin') {
+    for (const app of ['DSH NEXT', 'DSH Desktop', 'dsh']) {
+      bases.push(join('/Applications', `${app}.app`, 'Contents', 'Resources', 'app', 'node_modules'))
+      bases.push(join(home, 'Applications', `${app}.app`, 'Contents', 'Resources', 'app', 'node_modules'))
+    }
+  } else if (process.platform === 'win32') {
+    const local = process.env.LOCALAPPDATA ?? ''
+    for (const app of ['dsh-desktop-next', 'DSH NEXT', 'DSH Desktop', 'dsh-desktop']) {
+      bases.push(join(local, 'Programs', app, 'resources', 'app', 'node_modules'))
+    }
+  }
+  if (process.env.DSH_DESKTOP_APP_DIR) bases.push(process.env.DSH_DESKTOP_APP_DIR)
   // The official installer puts dsh beside its own binary, so a PATH entry is a
   // candidate install prefix as well.
   const sep = process.platform === 'win32' ? ';' : ':'
@@ -245,9 +267,17 @@ function autoHealPreset(): { healed: boolean; verdict: string } {
         // A failed backup must not block the repair; the exit status below still reports it.
       }
     }
+    // Under DSH Desktop the host runs on Electron, so process.execPath is the
+    // Electron binary: spawn it with ELECTRON_RUN_AS_NODE=1 to execute the
+    // generator (RunAsNode fuse is enabled by the desktop build). Plain Node
+    // hosts keep the default behavior.
+    const desktopEnv = process.versions.electron
+      ? { ELECTRON_RUN_AS_NODE: '1' }
+      : {}
     const res = spawnSync(process.execPath, [gen, '--out', target], {
       encoding: 'utf8',
       timeout: 60_000,
+      env: { ...process.env, ...desktopEnv },
     })
     if (res.status !== 0) {
       const why = String(res.stderr || res.error?.message || '').trim().split('\n').slice(-1)[0] ?? ''

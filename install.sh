@@ -12,6 +12,63 @@ trap 'rm -rf "$TMPDIR"' EXIT
 CACHE_DIR="$DSH_HOME/.tgz-cache"
 mkdir -p "$CACHE_DIR"
 
+# ── dsh Desktop (DSH NEXT / DSH Desktop) branch ────────────────────────────
+# The `desktop` profile is managed exclusively by the Electron application:
+# every CLI (npm-installed or app-bundled) refuses it with
+#   error: profile "desktop" is managed exclusively by the Electron application
+# so there is no `dsh plugin --profile desktop add` channel. Installation goes
+# through the in-app plugin manager (same pnpm + bundles reconciliation the web
+# profile uses); this script verifies the profile, hands over install
+# instructions, and re-derives the preset patch once the package is present.
+run_gen_preset() { # $1 = gen-preset.mjs path, $2 = target patch path
+  local gen="$1" target="$2"
+  if command -v node >/dev/null 2>&1; then
+    node "$gen" --out "$target"
+  else
+    local electron=""
+    for cand in \
+      "/Applications/DSH NEXT.app/Contents/MacOS/DSH NEXT" \
+      "/Applications/DSH Desktop.app/Contents/MacOS/DSH Desktop"; do
+      [ -x "$cand" ] && { electron="$cand"; break; }
+    done
+    [ -n "$electron" ] || return 1
+    DSH_DESKTOP_APP_DIR="${DSH_DESKTOP_APP_DIR:-$(dirname "$(dirname "$electron")")/Resources/app/node_modules}" \
+      ELECTRON_RUN_AS_NODE=1 "$electron" "$gen" --out "$target"
+  fi
+}
+
+if [ "$PROFILE" = "desktop" ]; then
+  PROFILE_DIR="$DSH_HOME/profiles/desktop"
+  [ -d "$PROFILE_DIR" ] || {
+    echo "desktop profile not found at $PROFILE_DIR."
+    echo "Start DSH NEXT (or DSH Desktop) once so it initializes the desktop profile, then re-run: $0 desktop"
+    exit 1
+  }
+  BUNDLE_ROOT="$PROFILE_DIR/node_modules/@adwmc/helm-d"
+  if [ ! -d "$BUNDLE_ROOT" ]; then
+    echo "[desktop] package not installed yet. Install it from the app:"
+    echo "  DSH NEXT -> Settings/设置 -> Plugins/插件 -> Add/添加, then pick ONE:"
+    echo "    1) npm package name:  @adwmc/helm-d"
+    echo "    2) tarball URL:       https://github.com/$REPO/releases/latest/download/helmd.tgz"
+    echo "    3) github:            github:ADWMC/helm-d/tree/main/packages/helmd"
+    echo "After the app finishes installing, re-run: $0 desktop"
+    echo "(this re-derives the preset patch from the app's own dsh standard)"
+    exit 0
+  fi
+  PATCH_TARGET="$BUNDLE_ROOT/preset.generated.patch.yml"
+  GEN_SCRIPT="$BUNDLE_ROOT/scripts/gen-preset.mjs"
+  echo "[desktop] @adwmc/helm-d found in the desktop profile; re-deriving the preset patch ..."
+  [ -f "$PATCH_TARGET" ] && { cp "$PATCH_TARGET" "$PATCH_TARGET.bak"; echo "  kept $PATCH_TARGET.bak"; }
+  if [ -f "$GEN_SCRIPT" ] && run_gen_preset "$GEN_SCRIPT" "$PATCH_TARGET"; then
+    echo "  preset patch re-derived from the desktop host standard (platform rows match this app)"
+  else
+    echo "  (generator failed; keeping the shipped patch — the in-app health card will auto-heal on restart)"
+  fi
+  echo "[desktop] done. Quit DSH NEXT completely and reopen it, pick the 'helmd' preset,"
+  echo "then send the activation word: $ACTIVATION"
+  exit 0
+fi
+
 echo "[1/4] downloading latest release tarball from $REPO ..."
 # latest/download stable URL: 恒指向最新 release，免 API、免版本发现、无回退点
 AUTH=()

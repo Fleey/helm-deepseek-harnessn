@@ -39,7 +39,8 @@
 import { createHash } from 'node:crypto'
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { execSync } from 'node:child_process'
-import { dirname, join, resolve } from 'node:path'
+import { homedir } from 'node:os'
+import { dirname, isAbsolute, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 const scriptDir = dirname(fileURLToPath(import.meta.url))
@@ -89,6 +90,44 @@ const TAILS = [
   ['@deepseek-ai', 'dsh', 'config', 'agent-presets', 'standard', 'agent.cordis.yml'],
 ]
 
+/**
+ * DSH Desktop (incl. the DSH NEXT build) vendors the host UNPACKED and FLAT
+ * under <app>/Contents/Resources/app/node_modules (macOS) or
+ * %LOCALAPPDATA%\Programs\<app>\resources\app\node_modules (Windows) —
+ * `@deepseek-ai/dsh-web-app` sits directly in that node_modules, with no
+ * `@deepseek-ai/dsh/node_modules` nesting, so these are candidate FILES, not
+ * TAIL bases. Env override: DSH_DESKTOP_APP_DIR points at the app's
+ * node_modules directory.
+ */
+function desktopStandardCandidates() {
+  const bases = []
+  if (process.env.DSH_DESKTOP_APP_DIR) bases.push(resolve(process.env.DSH_DESKTOP_APP_DIR))
+  if (process.platform === 'darwin') {
+    for (const name of ['DSH NEXT.app', 'DSH Desktop.app', 'dsh.app']) {
+      bases.push(join('/Applications', name, 'Contents', 'Resources', 'app', 'node_modules'))
+      bases.push(join(homedir(), 'Applications', name, 'Contents', 'Resources', 'app', 'node_modules'))
+    }
+  } else if (process.platform === 'win32') {
+    const local = process.env.LOCALAPPDATA ?? ''
+    for (const name of ['dsh-desktop-next', 'DSH NEXT', 'DSH Desktop', 'dsh-desktop']) {
+      bases.push(join(local, 'Programs', name, 'resources', 'app', 'node_modules'))
+    }
+  } else {
+    bases.push('/opt/dsh-desktop-next/resources/app/node_modules')
+  }
+  const files = []
+  for (const b of bases) {
+    if (b === '' || !isAbsolute(b)) continue
+    for (const tail of [
+      ['@deepseek-ai', 'dsh-web-app', 'presets', 'standard.patch.yml'],
+      ['@deepseek-ai', 'dsh', 'node_modules', '@deepseek-ai', 'dsh-web-app', 'presets', 'standard.patch.yml'],
+    ]) {
+      files.push(join(b, ...tail))
+    }
+  }
+  return files
+}
+
 /** Candidate global node_modules roots: npm-reported, platform defaults, PATH prefixes. */
 function nodeModulesBases() {
   const bases = []
@@ -124,8 +163,13 @@ function locateHostStandard() {
     if (!exists(p)) throw new Error(`DSH_HOST_STANDARD_YML points to missing file: ${p}`)
     return p
   }
+  // Desktop apps first: their host standard is a direct file, not a TAIL base.
+  const desktop = desktopStandardCandidates()
+  for (const c of desktop) {
+    if (exists(c)) return c
+  }
   const bases = [...new Set(nodeModulesBases().map((b) => resolve(b)))]
-  const probed = []
+  const probed = [...desktop]
   for (const b of bases) {
     for (const tail of TAILS) {
       const c = join(b, ...tail)
@@ -135,7 +179,8 @@ function locateHostStandard() {
   }
   throw new Error(
     'host standard preset not found; probed:\n  ' + probed.join('\n  ')
-    + '\nset DSH_HOST_STANDARD_YML to the host\'s dsh-web-app/presets/standard.patch.yml (dsh >= 0.1.7)',
+    + '\nset DSH_HOST_STANDARD_YML to the host\'s dsh-web-app/presets/standard.patch.yml (dsh >= 0.1.7)'
+    + '\nor DSH_DESKTOP_APP_DIR to a DSH Desktop app\'s Resources/app/node_modules',
   )
 }
 function exists(p) {

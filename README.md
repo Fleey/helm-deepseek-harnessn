@@ -22,6 +22,48 @@
 
 > 维护者文档：发布流程、preset 单源同步、坑位表见 [MAINTENANCE.md](MAINTENANCE.md)；版本历史见 [CHANGELOG.md](CHANGELOG.md)。
 
+---
+
+## 关于本仓库（Fork）
+
+本仓库是 [**ADWMC/helm-d**](https://github.com/ADWMC/helm-d)（helmd —— DeepSeek Harness 破甲一体化安全分析插件，MIT License）的 fork，唯一目标是**让 helmd 支持 dsh 桌面版（DSH NEXT / DSH Desktop）**。上游的全部能力（33 个工具、preset 三层指纹防线、健康卡片、工作台）原样保留，本文其余部分即上游文档。
+
+### 引用项目
+
+| 项目 | 关系 |
+|------|------|
+| [ADWMC/helm-d](https://github.com/ADWMC/helm-d) | 上游本体，本仓库的全部插件能力来源（MIT） |
+| [deepseek-ai/deepseek-harness](https://github.com/deepseek-ai/deepseek-harness) | dsh 宿主（"Everything is a Plugin."），桌面版内置 dsh 0.2.0-rc.2 |
+| [ADWMC/helm-x](https://github.com/ADWMC/helm-x) | 上游已引用：提示词注入与计分制设计 |
+| [yynxxxxx/Codex-X](https://github.com/yynxxxxx/Codex-X) | 上游已引用：提示词模板与可视化管理 |
+
+### 相对上游的调整点（全部围绕桌面版适配）
+
+| # | 文件 | 调整 |
+|---|------|------|
+| 1 | `packages/helmd/scripts/gen-preset.mjs`（与 `scripts/` 打包副本同步） | 新增 `desktopStandardCandidates()`：桌面版把宿主**未打包**放在 `<app>/Contents/Resources/app/node_modules`，`@deepseek-ai/dsh-web-app` 平铺其中、没有 `@deepseek-ai/dsh/node_modules` 嵌套层，因此桌面 standard 按**直接文件**优先探测（macOS `/Applications|~/Applications/DSH NEXT.app|DSH Desktop.app`、Windows `%LOCALAPPDATA%\Programs\…`、Linux `/opt/...`），支持 `DSH_DESKTOP_APP_DIR` 覆盖 |
+| 2 | `packages/helmd/src/health.ts` | 进程内定位宿主 standard 时优先用 `process.resourcesPath`（Electron 进程内的精确定位，免路径猜测）+ 同套桌面路径探测；健康卡片 auto-heal 的 `spawnSync(process.execPath, …)` 在 Electron 进程内自动追加 `ELECTRON_RUN_AS_NODE=1`，否则会拉起 GUI 而不是执行生成器 |
+| 3 | `packages/helmd/scripts/setup-preset.sh` | 无系统 node 时回退到桌面版 Electron（RunAsNode fuse 桌面构建已启用）执行 gen-preset，并自动导出 `DSH_DESKTOP_APP_DIR` |
+| 4 | `install.sh` | 新增 `desktop` 分支：desktop profile 由 Electron 应用独占管理（任何 CLI `dsh plugin --profile desktop add` 都被拒绝），因此分支只做三件事——校验 profile 已初始化、给出应用内插件页安装指引、包就位后重派生 preset（复用 #3 的 Electron 回退） |
+| 5 | `README.md` | 新增「dsh Desktop（DSH NEXT / DSH Desktop 桌面版）」章节：安装通道、行为差异表、env 覆盖 |
+| — | `pnpm-workspace.yaml` / peer 范围 | 未改动：上游已对齐 0.2.0-rc.2 cohort（`>=0.1.5-rc.1 <0.2.0-0 \|\| ^0.2.0-rc.1`），产物指纹与本仓库验证机上的 DSH NEXT standard 一致 |
+
+### 已验证环境
+
+- DSH NEXT（`dsh-desktop-next` 2.0.17-next，内置 dsh 0.2.0-rc.2，宿主未打包）· macOS · `pnpm typecheck` / `test:checks`(14 PASS) / `test:preset` / `gen-preset --check`（系统 node 与 Electron RunAsNode 双通道）全部通过
+- 桌面安装实测：profile 内 `@adwmc/helm-d` link 就位、`dsh.profile.bundles` 登记、preset 产物指纹匹配、`install.sh desktop` 幂等（`unchanged`）
+
+### 桌面版安装（30 秒版）
+
+```bash
+# 1) DSH NEXT → 设置 → 插件 → 添加：@adwmc/helm-d（或本仓库 tarball / github 路径）
+# 2) 包就位后重派生 preset：
+./install.sh desktop
+# 3) 完全退出并重启 DSH NEXT → preset 选 helmd → 会话发送 helmd
+```
+
+---
+
 ## Why helmd
 
 <table>
@@ -198,6 +240,34 @@ dsh web
 ```
 
 会话里发送 `helmd` 即激活。
+
+### dsh Desktop（DSH NEXT / DSH Desktop 桌面版）
+
+桌面版使用保留的 `desktop` profile，该 profile **由 Electron 应用独占管理**——任何 CLI（包括桌面版内置 CLI）执行 `dsh plugin --profile desktop add` 都会拒绝：`error: profile "desktop" is managed exclusively by the Electron application`。因此安装通道只有应用内插件管理页：
+
+1. 启动 DSH NEXT 一次，让它初始化 `~/.dsh/profiles/desktop`；
+2. 应用内 **设置 → 插件 → 添加**，任选其一：
+   - npm 包名 `@adwmc/helm-d`
+   - tarball：`https://github.com/ADWMC/helm-d/releases/latest/download/helmd.tgz`
+   - github：`github:ADWMC/helm-d/tree/main/packages/helmd`
+3. 应用完成安装后，跑一次 preset 重派生（无系统 node 时自动走桌面版 Electron 的 RunAsNode）：
+
+   ```bash
+   ./install.sh desktop        # macOS / Linux
+   ```
+
+4. 完全退出并重启 DSH NEXT，preset 选择器里选 `helmd`，会话发送 `helmd` 激活。
+
+桌面版行为差异与适配：
+
+| 项 | 行为 |
+|------|------|
+| 宿主 standard 定位 | 桌面版把 dsh 0.2.0-rc.2 宿主**未打包**放进 `<app>/Contents/Resources/app/node_modules`（macOS）；`gen-preset.mjs` / `health.ts` 会优先探测桌面应用路径，Electron 进程内直接用 `process.resourcesPath` 精确定位 |
+| 健康卡片自动修复 | heal 在 Electron 进程内 spawn 时自动加 `ELECTRON_RUN_AS_NODE=1`，无需系统 node |
+| 无系统 node | `setup-preset.sh` / `install.sh desktop` 回退到桌面版 Electron（RunAsNode fuse 已启用）执行 gen-preset |
+| 路径覆盖 | `DSH_DESKTOP_APP_DIR` 指向应用的 `Resources/app/node_modules`，`DSH_HOST_STANDARD_YML` 行为不变 |
+| 安装后生命周期 | 插件的增删改由应用内插件管理页负责（与 web profile 同一套 pnpm + bundles 协调逻辑）；`~/.dsh` 与 web 侧共享 |
+| 宿主 cohort | peer 范围 `>=0.1.5-rc.1 <0.2.0-0 || ^0.2.0-rc.1`，覆盖桌面版 0.2.0-rc.2 及以上 0.2.x |
 
 ## Preset 与宿主同步（三层指纹防线）
 
