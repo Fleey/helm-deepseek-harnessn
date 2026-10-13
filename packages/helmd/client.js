@@ -6,11 +6,12 @@ Object.defineProperty(exports, Symbol.toStringTag, { value: "Module" });
  *
  * 1. Session header action: Upgrades the helmd agent preset label into a
  *    native interactive capsule action button (Pill Action Button) via slot
- *    shadowing (`priority: -1`). Smoothly opens the security workbench in the
- *    right sidebar without navigating away, creating empty sessions, or reloading.
- * 2. Right sidebar workbench: Registers the 'hcot' tab carrying H-CoT control,
+ *    shadowing (`priority: -1`). Toggles the inline dropdown workbench.
+ * 2. Session tab bar (对话/轨迹/工作台): Registers the "工作台" conversation
+ *    view carrying the full-size workbench panel.
+ * 3. Right sidebar workbench: Registers the 'hcot' tab carrying H-CoT control,
  *    the 19+ reverse engineering tool matrix shelf, and stream audit logs.
- * 3. Settings health card: Read-only folded PluginCard under Settings -> Plugins.
+ * 4. Settings health card: Read-only folded PluginCard under Settings -> Plugins.
  *
  * Strictly adheres to DSH design tokens (--dsw-alias-*) and zero emojis.
  */
@@ -342,46 +343,12 @@ exports.apply = function apply(ctx) {
 			};
 		}, [open]);
 
-		// Single-surface trigger: prefer the native right-sidebar workbench tab;
-		// the inline popover is only a fallback for hosts without sidebarRight
-		// APIs. Opening both at once stacked them on top of each other (observed
-		// on the DSH Desktop build), so never open the two surfaces together.
+		// Capsule trigger: toggle the inline dropdown workbench. The full-size
+		// surface lives in the session tab bar (conversation.view "工作台" tab);
+		// the two are independent entry points, never opened together.
 		function handleToggleWorkbench(e) {
 			e.preventDefault();
 			e.stopPropagation();
-
-			const sid = props.sessionId;
-			const sidebar = ctx.sidebarRight;
-			const hasSidebarApi = Boolean(sidebar) &&
-				(typeof sidebar.openTabIn === "function" || typeof sidebar.openTab === "function");
-
-			if (hasSidebarApi) {
-				// Sidebar path: close the inline popover if it was open, then
-				// expand the right sidebar and activate the hcot tab.
-				setOpen(false);
-				const activateTab = () => {
-					if (sid && typeof sidebar.openTabIn === "function") {
-						try { sidebar.openTabIn(sid, "hcot"); } catch (err) {}
-					}
-					if (typeof sidebar.openTab === "function") {
-						try { sidebar.openTab("hcot"); } catch (err) {}
-					}
-					if (typeof sidebar.isExpanded === "function" && !sidebar.isExpanded()) {
-						try {
-							if (typeof sidebar.toggleExpanded === "function") {
-								sidebar.toggleExpanded();
-							}
-						} catch (err) {}
-					}
-				};
-				activateTab();
-				setTimeout(activateTab, 80);
-				return;
-			}
-
-			// Fallback: no sidebar API — toggle the inline popover only. The
-			// DOM expand-button click stays out of this path: clicking it here
-			// would surface the very same second layer we just removed.
 			setOpen((prev) => !prev);
 		}
 
@@ -833,6 +800,31 @@ exports.apply = function apply(ctx) {
 			});
 		}, "helmd: sidebar tab definition");
 	}
+
+	// Session tab-bar view (对话 / 轨迹 / 工作台): the workbench as a first-class
+	// per-session conversation view. `inject` receives the sessionId and its
+	// return value becomes the component's props (same contract the host's
+	// chat/trajectory views use).
+	ctx.slots.inject("conversation.view", function* () {
+		yield ctx.slots.register({
+			name: "conversation.view",
+			id: "helmd-workbench",
+			order: 15,
+			label: () => "工作台",
+			inject: (sessionId) => ({ sessionId: sessionId }),
+		}, function HelmdWorkbenchView(props) {
+			return h("div", {
+				style: {
+					height: "100%", overflowY: "auto", padding: 14,
+					fontSize: 12, lineHeight: 1.5, boxSizing: "border-box",
+				},
+			},
+				h(TabErrorBoundary, null,
+					h(HelmdWorkbenchPanel, { sessionId: props && props.sessionId })
+				)
+			);
+		});
+	});
 
 	ctx.slots.inject("sidebar.right.pane.tab", function* () {
 		yield ctx.slots.register({ name: "sidebar.right.pane.tab", key: "helm-d:hcot" }, HelmdWorkbenchPanel);
