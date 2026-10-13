@@ -810,7 +810,7 @@ exports.apply = function apply(ctx) {
 			name: "conversation.view",
 			id: "helmd-workbench",
 			order: 15,
-			label: () => "工作台",
+			label: () => "helmd",
 			inject: (sessionId) => ({ sessionId: sessionId }),
 		}, function HelmdWorkbenchView(props) {
 			return h("div", {
