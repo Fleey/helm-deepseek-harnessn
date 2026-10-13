@@ -342,42 +342,47 @@ exports.apply = function apply(ctx) {
 			};
 		}, [open]);
 
-		// Dual-action trigger: Open inline workbench drawer AND trigger rightbar expansion
+		// Single-surface trigger: prefer the native right-sidebar workbench tab;
+		// the inline popover is only a fallback for hosts without sidebarRight
+		// APIs. Opening both at once stacked them on top of each other (observed
+		// on the DSH Desktop build), so never open the two surfaces together.
 		function handleToggleWorkbench(e) {
 			e.preventDefault();
 			e.stopPropagation();
-			setOpen((prev) => !prev);
-
-			// Also trigger sidebarRight expansion if available
-			const expandBtn = document.querySelector('[data-sidebar-right-expand]') ||
-			                  document.querySelector('button[aria-label="打开右侧边栏"]') ||
-			                  document.querySelector('button[aria-label="Open right sidebar"]');
-			if (expandBtn) {
-				try {
-					expandBtn.click();
-				} catch (err) {}
-			}
 
 			const sid = props.sessionId;
-			const activateTab = () => {
-				if (ctx.sidebarRight) {
-					if (sid && typeof ctx.sidebarRight.openTabIn === "function") {
-						try { ctx.sidebarRight.openTabIn(sid, "hcot"); } catch (err) {}
+			const sidebar = ctx.sidebarRight;
+			const hasSidebarApi = Boolean(sidebar) &&
+				(typeof sidebar.openTabIn === "function" || typeof sidebar.openTab === "function");
+
+			if (hasSidebarApi) {
+				// Sidebar path: close the inline popover if it was open, then
+				// expand the right sidebar and activate the hcot tab.
+				setOpen(false);
+				const activateTab = () => {
+					if (sid && typeof sidebar.openTabIn === "function") {
+						try { sidebar.openTabIn(sid, "hcot"); } catch (err) {}
 					}
-					if (typeof ctx.sidebarRight.openTab === "function") {
-						try { ctx.sidebarRight.openTab("hcot"); } catch (err) {}
+					if (typeof sidebar.openTab === "function") {
+						try { sidebar.openTab("hcot"); } catch (err) {}
 					}
-					if (typeof ctx.sidebarRight.isExpanded === "function" && !ctx.sidebarRight.isExpanded()) {
+					if (typeof sidebar.isExpanded === "function" && !sidebar.isExpanded()) {
 						try {
-							if (typeof ctx.sidebarRight.toggleExpanded === "function") {
-								ctx.sidebarRight.toggleExpanded();
+							if (typeof sidebar.toggleExpanded === "function") {
+								sidebar.toggleExpanded();
 							}
 						} catch (err) {}
 					}
-				}
-			};
-			activateTab();
-			setTimeout(activateTab, 80);
+				};
+				activateTab();
+				setTimeout(activateTab, 80);
+				return;
+			}
+
+			// Fallback: no sidebar API — toggle the inline popover only. The
+			// DOM expand-button click stays out of this path: clicking it here
+			// would surface the very same second layer we just removed.
+			setOpen((prev) => !prev);
 		}
 
 		return h("div", {
