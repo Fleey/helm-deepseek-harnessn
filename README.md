@@ -46,16 +46,22 @@
 
 ### 桌面版安装（30 秒版）
 
-DSH NEXT → 设置 → 插件 → 添加，安装地址**必须指向 `packages/helmd` 子包**（仓库根 package.json 无 `dsh.bundle` 声明，填根地址会报「这个包没有声明组合包」）：
+DSH NEXT → 设置 → 插件 → 添加。**推荐 release tarball URL**（单包完整、probe 必过、dist 内置）：
 
 ```text
-# 1) npm 包名（上游发布版）：
+https://github.com/Fleey/helm-deepseek-harnessn/releases/latest/download/helmd.tgz
+```
+
+其余可用通道（安装地址**必须指向 `packages/helmd` 子包**；仓库根 package.json 无 `dsh.bundle` 声明，填根地址会报「这个包没有声明组合包」）：
+
+```text
+# npm 包名（上游发布版）：
 @adwmc/helm-d
 
-# 2) github 路径（本 fork；pnpm 子目录语法 —— 注意 #<commit>&path:，"tree/main" 写法 pnpm 不认）：
+# github 路径（本 fork；pnpm 子目录语法 —— 注意 #<commitish>&path:，裸仓库地址或 "tree/main" 写法都会装成根包）：
 github:Fleey/helm-deepseek-harnessn#main&path:packages/helmd
 
-# 3) 本地 tarball（开箱即用，推荐）：
+# 本地 tarball（开箱即用）：
 #    先构建：cd packages/helmd && npm run build && node scripts/build-profiles.mjs && node scripts/build-sealed.mjs
 #    再 npm pack，把产物 tgz 的绝对路径填进安装框
 ```
