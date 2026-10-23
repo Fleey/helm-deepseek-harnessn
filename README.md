@@ -34,7 +34,7 @@
 | 1 | `packages/helmd/scripts/gen-preset.mjs`（与根 `scripts/` 副本同步） | `desktopStandardCandidates()` 同时探测桌面版两种宿主布局：旧的**未打包**布局 `<app>/Resources/app/node_modules` 与新版（DSH NEXT 2.0.19+）的 **asar** 布局 `<app>/Resources/app.asar/node_modules`——asar 内路径只有桌面 Electron（RunAsNode）能读；支持 `DSH_DESKTOP_APP_DIR` 覆盖 |
 | 2 | `packages/helmd/src/health.ts` | 进程内定位宿主 standard：`process.resourcesPath` 精确定位 + 同套桌面双布局探测，asar 优先；`HOST_STANDARD_TAILS` 增加桌面平铺 tail；auto-heal 在 Electron 进程内 spawn 自动加 `ELECTRON_RUN_AS_NODE=1` |
 | 3 | `packages/helmd/scripts/setup-preset.sh` | 无系统 node 时回退桌面 Electron；有系统 node 但探不到宿主（asar 布局）时也自动重试 Electron 通道 |
-| 4 | `install.sh`（fork 附加，上游已移除安装脚本） | `desktop` 分支：desktop profile 由应用独占管理，脚本只做 profile 校验、应用内安装指引与 preset 重派生 |
+| 4 | `install.sh`（fork 附加，上游已移除安装脚本） | `desktop` 分支：desktop profile 由应用独占管理，脚本只做 profile 校验、应用内安装指引与 preset 重派生；0.5.x 密封分发包内无生成器，此时保留随包产物并提示以健康卡片为准（0.4.x 明文包仍会重派生） |
 | 5 | `packages/helmd/client.js` | 会话标签栏（对话/轨迹/helmd）工作台视图：仅在 helmd-preset 会话注册；`TabErrorBoundary` 拦截单标签页渲染错误（Intercept Log 白屏修复） |
 | — | `pnpm-workspace.yaml` / peer 范围 | 未改动：上游 0.5.1 已对齐 dsh `0.2.1-rc.2` cohort，产物指纹与本机 DSH NEXT 2.0.19-next 的宿主 standard 一致 |
 
@@ -48,7 +48,8 @@
 
 ```bash
 # 1) DSH NEXT → 设置 → 插件 → 添加：@adwmc/helm-d（或本仓库 tarball / github 路径）
-# 2) 包就位后重派生 preset（自动探测 asar / 未打包宿主）：
+# 2) 包就位后跑 preset 体检（0.4.x 明文包会按本机宿主重派生；0.5.x 密封包
+#    无包内生成器，保留随包产物、以健康卡片判定为准）：
 ./install.sh desktop
 # 3) 完全退出并重启 DSH NEXT → preset 选 helmd → 会话发送 helmd
 ```

@@ -59,7 +59,12 @@ if [ "$PROFILE" = "desktop" ]; then
   GEN_SCRIPT="$BUNDLE_ROOT/scripts/gen-preset.mjs"
   echo "[desktop] @adwmc/helm-d found in the desktop profile; re-deriving the preset patch ..."
   [ -f "$PATCH_TARGET" ] && { cp "$PATCH_TARGET" "$PATCH_TARGET.bak"; echo "  kept $PATCH_TARGET.bak"; }
-  if [ -f "$GEN_SCRIPT" ] && run_gen_preset "$GEN_SCRIPT" "$PATCH_TARGET"; then
+  if [ ! -f "$GEN_SCRIPT" ]; then
+    # 0.5.x sealed distribution ships no in-package generator (zero plaintext);
+    # keep the shipped patch and let the in-app health card report the verdict.
+    echo "  (sealed distribution: no in-package generator; keeping the shipped patch)"
+    echo "  check the health card in Settings → Plugins after restart"
+  elif run_gen_preset "$GEN_SCRIPT" "$PATCH_TARGET"; then
     echo "  preset patch re-derived from the desktop host standard (platform rows match this app)"
   else
     echo "  (generator failed; keeping the shipped patch — the in-app health card will auto-heal on restart)"
@@ -116,30 +121,29 @@ fi
 
 echo "[3/4] deriving the preset patch against this machine's dsh host ..."
 BUNDLE_ROOT="$DSH_HOME/profiles/$PROFILE/node_modules/@adwmc/helm-d"
-BUNDLE_PRESETS="$BUNDLE_ROOT/presets"
 PATCH_TARGET="$BUNDLE_ROOT/preset.generated.patch.yml"
 if [ ! -f "$PATCH_TARGET" ]; then
   echo "bundled preset patch not found at $PATCH_TARGET"; exit 1
 fi
-if [ ! -f "$BUNDLE_PRESETS/persona.txt" ]; then
-  echo "bundle persona source not found at $BUNDLE_PRESETS"; exit 1
-fi
 
-# dsh >= 0.1.7 loads the preset straight from the bundle through
-# dsh.bundle.patch, so there is nothing to deploy. The release ships a patch
-# generated against the release build's host; re-derive it HERE so the platform
-# rows match the dsh actually installed on this machine. gen-preset writes
-# nothing when it cannot read a 0.1.7 host standard, so the fallback is simply
-# keeping the shipped patch (correct rows for the release's version).
+# 0.5.x sealed distribution: the tarball ships payload.dat / references.dat and
+# NO plaintext persona.txt or scripts/gen-preset.mjs (npm supply-chain scan sees
+# zero plaintext), so in-place re-derivation is impossible by design — keep the
+# shipped patch; the in-app health card (Settings → Plugins) reports the preset
+# verdict after restart, and HOST_UPGRADED means re-install for this host
+# generation. Older plaintext bundles (0.4.x) still carry the generator.
 GEN_SCRIPT="$BUNDLE_ROOT/scripts/gen-preset.mjs"
-if command -v node >/dev/null 2>&1 && [ -f "$GEN_SCRIPT" ]; then
+if [ ! -f "$GEN_SCRIPT" ]; then
+  echo "  (sealed distribution: no in-package generator; keeping the shipped patch)"
+  echo "  check the health card in Settings → Plugins after restart"
+elif command -v node >/dev/null 2>&1; then
   if node "$GEN_SCRIPT" --out "$PATCH_TARGET"; then
     echo "  preset patch re-derived from local dsh standard (platform rows match this host)"
   else
     echo "  (generator failed; keeping the shipped patch - run scripts/setup-preset.sh after upgrading dsh)"
   fi
 else
-  echo "  (node or generator unavailable; keeping the shipped patch - run scripts/setup-preset.sh once node is on PATH)"
+  echo "  (node unavailable; keeping the shipped patch - run scripts/setup-preset.sh once node is on PATH)"
 fi
 
 echo "[4/4] preset ready: id 'helmd' (default NOT auto-set; pick 'helmd' in the UI preset picker)"

@@ -389,42 +389,13 @@ exports.apply = function apply(ctx) {
 			};
 		}, [open]);
 
-		// Dual-action trigger: Open inline workbench drawer AND trigger rightbar expansion
+		// Capsule trigger: toggle the inline dropdown workbench. The full-size
+		// surface lives in the session tab bar (conversation.view "helmd" tab);
+		// the two are independent entry points, never opened together.
 		function handleToggleWorkbench(e) {
 			e.preventDefault();
 			e.stopPropagation();
 			setOpen((prev) => !prev);
-
-			// Also trigger sidebarRight expansion if available
-			const expandBtn = document.querySelector('[data-sidebar-right-expand]') ||
-			                  document.querySelector('button[aria-label="打开右侧边栏"]') ||
-			                  document.querySelector('button[aria-label="Open right sidebar"]');
-			if (expandBtn) {
-				try {
-					expandBtn.click();
-				} catch (err) {}
-			}
-
-			const sid = props.sessionId;
-			const activateTab = () => {
-				if (ctx.sidebarRight) {
-					if (sid && typeof ctx.sidebarRight.openTabIn === "function") {
-						try { ctx.sidebarRight.openTabIn(sid, "eval"); } catch (err) {}
-					}
-					if (typeof ctx.sidebarRight.openTab === "function") {
-						try { ctx.sidebarRight.openTab("eval"); } catch (err) {}
-					}
-					if (typeof ctx.sidebarRight.isExpanded === "function" && !ctx.sidebarRight.isExpanded()) {
-						try {
-							if (typeof ctx.sidebarRight.toggleExpanded === "function") {
-								ctx.sidebarRight.toggleExpanded();
-							}
-						} catch (err) {}
-					}
-				}
-			};
-			activateTab();
-			setTimeout(activateTab, 80);
 		}
 
 		return h("div", {
