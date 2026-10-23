@@ -68,6 +68,9 @@ export interface HelmdHealth {
 
 /** Preset-patch tails per host generation, newest first (mirrors gen-preset.mjs). */
 const HOST_STANDARD_TAILS: string[][] = [
+  // Desktop layouts (unpacked & asar): @deepseek-ai/dsh-web-app sits directly
+  // in the vendored node_modules — no @deepseek-ai/dsh/node_modules nesting.
+  ['@deepseek-ai', 'dsh-web-app', 'presets', 'standard.patch.yml'],
   ['@deepseek-ai', 'dsh', 'node_modules', '@deepseek-ai', 'dsh-web-app', 'presets', 'standard.patch.yml'],
   ['@deepseek-ai', 'dsh', 'node_modules', '@deepseek-ai', 'dsh-agent-presets', 'presets', 'standard', 'agent.cordis.yml'],
   ['@deepseek-ai', 'dsh', 'config', 'agent-presets', 'standard', 'agent.cordis.yml'],
@@ -80,32 +83,38 @@ const HOST_STANDARD_TAILS: string[][] = [
 function locateHostStandard(): string | null {
   const env = process.env.DSH_HOST_STANDARD_YML
   if (env && existsSync(env)) return env
-  const bases = [
-    // DSH Desktop / DSH NEXT vendor the host unpacked under <app resources>/app;
-    // running inside the desktop host, process.resourcesPath IS that directory —
-    // the precise probe, no name guessing.
-    (process as unknown as { resourcesPath?: string }).resourcesPath
-      ? join((process as unknown as { resourcesPath: string }).resourcesPath, 'app', 'node_modules')
-      : '',
-    process.env.APPDATA ? join(process.env.APPDATA, 'npm', 'node_modules') : '',
-    '/usr/local/lib/node_modules',
-    '/usr/lib/node_modules',
-  ]
-  // Desktop app locations when this file runs out-of-process (setup scripts via
-  // Electron RunAsNode) or the desktop build's resourcesPath layout differs.
+  // Desktop resource roots, newest layout first:
+  //   asar  (DSH NEXT 2.0.19+): host node_modules is VIRTUAL, inside app.asar —
+  //         only readable when this process IS the desktop Electron (in-process
+  //         health check or spawn with ELECTRON_RUN_AS_NODE).
+  //   app/  (older unpacked builds): host node_modules is a real directory.
+  // In-process, process.resourcesPath IS <app>/Contents/Resources — precise, no
+  // name guessing.
+  const desktopResourceRoots: string[] = []
+  const resourcesPath = (process as unknown as { resourcesPath?: string }).resourcesPath
+  if (resourcesPath) desktopResourceRoots.push(resourcesPath)
   const home = homedir()
   if (process.platform === 'darwin') {
     for (const app of ['DSH NEXT', 'DSH Desktop', 'dsh']) {
-      bases.push(join('/Applications', `${app}.app`, 'Contents', 'Resources', 'app', 'node_modules'))
-      bases.push(join(home, 'Applications', `${app}.app`, 'Contents', 'Resources', 'app', 'node_modules'))
+      desktopResourceRoots.push(join('/Applications', `${app}.app`, 'Contents', 'Resources'))
+      desktopResourceRoots.push(join(home, 'Applications', `${app}.app`, 'Contents', 'Resources'))
     }
   } else if (process.platform === 'win32') {
     const local = process.env.LOCALAPPDATA ?? ''
     for (const app of ['dsh-desktop-next', 'DSH NEXT', 'DSH Desktop', 'dsh-desktop']) {
-      bases.push(join(local, 'Programs', app, 'resources', 'app', 'node_modules'))
+      desktopResourceRoots.push(join(local, 'Programs', app, 'resources'))
     }
   }
+  const bases: string[] = []
+  for (const r of desktopResourceRoots) {
+    bases.push(join(r, 'app.asar', 'node_modules'), join(r, 'app', 'node_modules'))
+  }
   if (process.env.DSH_DESKTOP_APP_DIR) bases.push(process.env.DSH_DESKTOP_APP_DIR)
+  bases.push(
+    process.env.APPDATA ? join(process.env.APPDATA, 'npm', 'node_modules') : '',
+    '/usr/local/lib/node_modules',
+    '/usr/lib/node_modules',
+  )
   // The official installer puts dsh beside its own binary, so a PATH entry is a
   // candidate install prefix as well.
   const sep = process.platform === 'win32' ? ';' : ':'

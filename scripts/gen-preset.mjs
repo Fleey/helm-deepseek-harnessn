@@ -91,30 +91,45 @@ const TAILS = [
 ]
 
 /**
- * DSH Desktop (incl. the DSH NEXT build) vendors the host UNPACKED and FLAT
- * under <app>/Contents/Resources/app/node_modules (macOS) or
- * %LOCALAPPDATA%\Programs\<app>\resources\app\node_modules (Windows) —
- * `@deepseek-ai/dsh-web-app` sits directly in that node_modules, with no
- * `@deepseek-ai/dsh/node_modules` nesting, so these are candidate FILES, not
- * TAIL bases. Env override: DSH_DESKTOP_APP_DIR points at the app's
- * node_modules directory.
+ * DSH Desktop (incl. the DSH NEXT build) vendors the host in TWO layouts:
+ *
+ *  - unpacked (older builds): <app>/Contents/Resources/app/node_modules —
+ *    `@deepseek-ai/dsh-web-app` sits directly in that node_modules, with no
+ *    `@deepseek-ai/dsh/node_modules` nesting, so these are candidate FILES,
+ *    not TAIL bases.
+ *  - asar (newer builds, e.g. DSH NEXT 2.0.19+): the whole app ships inside
+ *    <app>/Contents/Resources/app.asar, and only Electron (RunAsNode) can
+ *    stat paths under it. Plain node CANNOT see these files — probing them
+ *    with existsSync from a system node is a harmless no-op, and running
+ *    this generator through the desktop Electron binary resolves them.
+ *
+ * Env override: DSH_DESKTOP_APP_DIR points at a directory that EITHER holds
+ * node_modules directly (unpacked layout) OR IS the asar file's containing
+ * layout — both `…/node_modules/@deepseek-ai/dsh-web-app/…` and
+ * `…/app.asar/node_modules/@deepseek-ai/dsh-web-app/…` tails are probed.
  */
 function desktopStandardCandidates() {
   const bases = []
   if (process.env.DSH_DESKTOP_APP_DIR) bases.push(resolve(process.env.DSH_DESKTOP_APP_DIR))
+  const roots = []
   if (process.platform === 'darwin') {
     for (const name of ['DSH NEXT.app', 'DSH Desktop.app', 'dsh.app']) {
-      bases.push(join('/Applications', name, 'Contents', 'Resources', 'app', 'node_modules'))
-      bases.push(join(homedir(), 'Applications', name, 'Contents', 'Resources', 'app', 'node_modules'))
+      for (const base of ['/Applications', join(homedir(), 'Applications')]) {
+        roots.push(join(base, name, 'Contents', 'Resources'))
+      }
     }
   } else if (process.platform === 'win32') {
     const local = process.env.LOCALAPPDATA ?? ''
     for (const name of ['dsh-desktop-next', 'DSH NEXT', 'DSH Desktop', 'dsh-desktop']) {
-      bases.push(join(local, 'Programs', name, 'resources', 'app', 'node_modules'))
+      roots.push(join(local, 'Programs', name, 'resources'))
     }
   } else {
-    bases.push('/opt/dsh-desktop-next/resources/app/node_modules')
+    roots.push('/opt/dsh-desktop-next/resources')
   }
+  // Unpacked layout: host node_modules sits at <resources>/app/node_modules.
+  for (const r of roots) bases.push(join(r, 'app', 'node_modules'))
+  // Asar layout: Electron exposes <asar>/node_modules as a virtual path.
+  for (const r of roots) bases.push(join(r, 'app.asar', 'node_modules'))
   const files = []
   for (const b of bases) {
     if (b === '' || !isAbsolute(b)) continue
@@ -180,7 +195,8 @@ function locateHostStandard() {
   throw new Error(
     'host standard preset not found; probed:\n  ' + probed.join('\n  ')
     + '\nset DSH_HOST_STANDARD_YML to the host\'s dsh-web-app/presets/standard.patch.yml (dsh >= 0.1.7)'
-    + '\nor DSH_DESKTOP_APP_DIR to a DSH Desktop app\'s Resources/app/node_modules',
+    + '\nor DSH_DESKTOP_APP_DIR to a DSH Desktop app\'s node_modules (unpacked) or app.asar/node_modules (asar)'
+    + '\n(only the desktop Electron binary — ELECTRON_RUN_AS_NODE=1 <app-binary> — can read paths inside app.asar)',
   )
 }
 function exists(p) {
