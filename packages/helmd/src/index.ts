@@ -17,7 +17,7 @@ import { registerEvidenceTools } from './tools/evidence.js'
 import { registerToolboxTools } from './tools/toolbox.js'
 import { registerLedgerTool } from './ledger.js'
 import { registerIcaContext } from './ica-context.js'
-import { registerGate } from './gate.js'
+import { registerPersona } from './persona.js'
 
 export const name = 'helmd'
 export const inject = ['tools', 'systemPrompt']
@@ -71,11 +71,11 @@ export function apply(ctx: Context): void {
     unwash()
   }
 
-  // Star gate LAST: the tools service is warm by now, and any gate failure
-  // must not take down the rest of the plugin (defensive registration inside).
+  // Persona LAST: the systemPrompt service is warm by now, and a persona
+  // registration failure must not take down the rest of the plugin.
   try {
-    registerGate(ctx)
+    registerPersona(ctx)
   } catch (error) {
-    console.warn('[helmd] gate registration failed:', error instanceof Error ? error.message : error)
+    console.warn('[helmd] persona registration failed:', error instanceof Error ? error.message : error)
   }
 }

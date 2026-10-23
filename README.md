@@ -6,7 +6,7 @@
 
 **DeepSeek Harness 破甲安全分析插件**
 
-多破甲热切换 · 证据强制入链 · 35 工具 · 362 篇按需参考 · Android / Web / Native / Protocol / Malware / AI-Security 六域即开即用
+多破甲热切换 · 证据强制入链 · 34 工具 · 362 篇按需参考 · Android / Web / Native / Protocol / Malware / AI-Security 六域即开即用
 
 **求 Star 收藏 ⭐** 如要二开请看 [致谢](#致谢)
 
@@ -17,7 +17,7 @@
 [![Node >=22.19](https://img.shields.io/badge/Node-%3E%3D22.19.0-green)](https://nodejs.org)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
-[安装](#安装) · [八题实测](#八题实测) · [多破甲](#多破甲) · [35 工具](#35-工具) · [架构](#架构) · [工作台](#安全分析工作台) · [更新日志](CHANGELOG.md)
+[安装](#安装) · [八题实测](#八题实测) · [多破甲](#多破甲) · [34 工具](#34-工具) · [架构](#架构) · [工作台](#安全分析工作台) · [更新日志](CHANGELOG.md)
 
 </div>
 
@@ -25,7 +25,7 @@
 
 ## 关于本仓库（Fork）
 
-本仓库是 [**ADWMC/helm-d**](https://github.com/ADWMC/helm-d)（helmd）的 fork，唯一目标是**让 helmd 支持 dsh 桌面版（DSH NEXT / DSH Desktop）**。上游 0.5.1 的全部能力（35 工具、多破甲 profiles、密封分发、362 篇参考、健康卡片、工作台）原样保留，本文其余部分即上游文档。
+本仓库是 [**ADWMC/helm-d**](https://github.com/ADWMC/helm-d)（helmd）的 fork，唯一目标是**让 helmd 支持 dsh 桌面版（DSH NEXT / DSH Desktop）**。上游 0.5.1 的全部能力（34 工具、多破甲 profiles、密封分发、362 篇参考、健康卡片、工作台）原样保留，本文其余部分即上游文档。
 
 ### 相对上游的调整点（全部围绕桌面版适配）
 
@@ -123,7 +123,7 @@ dsh plugin --profile web add https://github.com/ADWMC/helm-d/releases/latest/dow
 dsh web
 ```
 
-会话里发送 `helmd` 即激活。首次启动会在网页右上角弹出一个 Star 请求面板（GitHub 一次性代码 + 授权链接），**不影响任何功能**，点「跳过本次启动」即消失；愿意支持就授权 + Star，之后不再出现。`npm add` 渠道同样可用：包内人设明文 0 字节（AES-256-GCM 封印 + 前置空串），内容扫描面为零。
+会话里发送 `helmd` 即激活。`npm add` 渠道同样可用：包内人设明文 0 字节（AES-256-GCM 封印 + 前置空串），内容扫描面为零。
 
 ## 八题实测
 
@@ -174,7 +174,7 @@ end_case(summary)
 
 规则写在代码里（`caseflow.ts`），不是写在提示词里求模型遵守。
 
-## 35 工具
+## 34 工具
 
 | 域 | 工具 |
 |----|------|
@@ -208,8 +208,7 @@ end_case(summary)
 
 ```mermaid
 flowchart LR
-    Q["用户问题"] --> POPUP["star 弹窗<br/>纯提示不影响功能"]
-    POPUP --> BS["bootstrap 首轮收窄<br/>shell + read"]
+    Q["用户问题"] --> BS["bootstrap 首轮收窄<br/>shell + read"]
     BS --> P{"会话晋升"}
     P -->|首轮| BS
     P -->|晋升后| ROUTER["router 领域路由"]
@@ -219,7 +218,6 @@ flowchart LR
     CASE --> OUT["带置信度与证据编号的结论"]
     REF --> OUT
 
-    style GATE fill:#fef3c7,stroke:#f59e0b,stroke-width:2px,color:#92400e
     style CASE fill:#eff6ff,stroke:#3b82f6,stroke-width:2px,color:#1e40af
     style ROUTER fill:#f0fdf4,stroke:#16a34a,stroke-width:2px,color:#15803d
     style OUT fill:#15803d,color:#fff,stroke:#166534,stroke-width:2px
@@ -231,7 +229,7 @@ flowchart LR
 
 | 组件 | 职责 |
 |------|------|
-| `gate.ts` | star 弹窗（纯 web 面板，不影响功能）+ persona section 注册（`helm-d:persona`，多破甲切换通道） |
+| `persona.ts` | persona section 注册（`helm-d:persona`，多破甲切换通道）。原 star 弹窗与设备流解锁已移除 |
 | `tool-wash.ts` | 把「拒绝是终局」类工具描述话术归一化为可继续措辞（防御层） |
 | `persist.ts` | 所有后注册领域工具输出自动落 `evidence/`，软门禁免逐工具改造 |
 | `advisory-hook.ts` | 对照会话日志清算上一轮 advisory；检测交付拒绝/敷衍措辞，注入 stance 指标 |

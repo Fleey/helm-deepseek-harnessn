@@ -4,6 +4,14 @@
 完整发布注记与资产见 [GitHub Releases](https://github.com/ADWMC/helm-d/releases)。
 官方QQ群：**213266664**
 
+## [0.5.1-fork.3] — 2026-10-23（fork：移除 Star 弹窗与设备流解锁 + 根地址可直接安装）
+
+- **移除 Star 门禁（操作者裁定）**：删掉整个 GitHub device-flow 解锁子系统——`src/star-gate.ts` 整文件删除（device flow 启动/轮询、`checkStarred`、`fetchLogin`、token 丢弃逻辑），`src/gate.ts` 剥离为纯 persona 注册并更名 `src/persona.ts`（`registerGate` → `registerPersona`；`applyPersonaSection` 签名与行为不变，多破甲热切换照旧）
+- **移除 `helmd_unlock` 工具**：它只用于查询解锁进度，随门禁一并删除（**工具计数 35 → 34**，MAINTENANCE 基准与中文 README 同步；英文 README 原本就是 34，此次对齐）
+- **移除 web 弹窗与两条 API**：`client.js` 的浮动 gate 卡片（一次性代码 + 授权链接 + 「跳过本次启动」+ 5s 轮询）整块删除；`GET /api/helmd/gate` 与 `GET /api/helmd/gate/skip` 路由删除。**代价：不再有任何 GitHub 网络请求，启动后无弹窗**
+- **根地址可直接安装**：根 `package.json` 声明 `dsh.bundle` / `dsh.client` 并转发到 `packages/helmd`，配合三个根级转发文件（`cordis.patch.yml` / `preset.generated.patch.yml` / `client.js`，由 `scripts/sync-root-shim.mjs` 生成、`root-shim` check 防漂移）——裸仓库地址不再报「这个包没有声明组合包」
+- 验证：`typecheck` PASS · `pnpm test:checks` 15 PASS · 根地址与子目录两条通道均经 DSH NEXT 2.0.19-next（dsh 0.2.1-rc.2）真实安装器端到端复验（`loadProfileDirectory` 无 skipped bundle、服务启动零 warn）
+
 ## [0.5.1-fork.2] — 2026-10-23（fork：密封分发补全 scripts 封印 + checks 桌面双通道）
 
 两处上游固有缺陷的修复（均为「文档声称、实现未做」，在密封安装态与桌面环境下暴露）：

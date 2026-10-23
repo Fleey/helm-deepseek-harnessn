@@ -12,7 +12,6 @@ import { homedir } from 'node:os'
 import { join } from 'node:path'
 import fs from 'node:fs'
 import { discoverAvailableModels } from './model-probe.js'
-import { gateStatus, skipThisLaunch } from './gate.js'
 
 const ROUTE_BASE = '/api/helmd'
 
@@ -120,15 +119,6 @@ export function registerHelmdApi(ctx: Context, getHealth?: () => unknown): void 
   // Stream interception stats
   get(`${ROUTE_BASE}/intercept`, () => {
     return getInterceptStats()
-  })
-
-  // Star gate: status snapshot + skip-for-this-launch (web gate panel data).
-  get(`${ROUTE_BASE}/gate`, () => {
-    return gateStatus()
-  })
-  get(`${ROUTE_BASE}/gate/skip`, () => {
-    skipThisLaunch()
-    return gateStatus()
   })
 
 }
