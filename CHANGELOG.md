@@ -4,6 +4,16 @@
 完整发布注记与资产见 [GitHub Releases](https://github.com/ADWMC/helm-d/releases)。
 官方QQ群：**213266664**
 
+## [0.5.1-fork.1] — 2026-10-23（fork：同步上游 0.5.1 + 桌面版双布局适配）
+
+上游仓库被重建（fork 与 upstream 无共同 git 历史），本版本以 upstream/main（0.5.1）为基底重新移植 fork 全部定制：
+
+- **同步上游 0.5.1**：多破甲 profiles 目录（core/stealth/redteam-max，AES-256-GCM 封印）、全加密分发（payload.dat/references.dat）、HCOT 子系统退役为 model-probe 评测（llm_probe/llm_eval_suite）、Star 弹窗、工作台版本徽标动态化、34→35 工具
+- **桌面版双布局探测**：DSH NEXT 2.0.19+ 把宿主从未打包 `app/node_modules` 移入 `app.asar`——asar 内路径只有桌面 Electron（RunAsNode）能读。`gen-preset.mjs` / `health.ts` 同时探测两种布局（asar 优先）；`setup-preset.sh` 在系统 node 探不到宿主时自动经 Electron 重试
+- **client.js 移植**：会话标签栏（对话/轨迹/helmd）工作台视图（仅 helmd-preset 会话注册）+ `TabErrorBoundary` 单标签页错误隔离（Intercept Log 白屏修复），叠加在上游 eval-tab 版本之上
+- **修上游 0.5.1 自带的两处红灯**（在纯净 upstream/main 上复现）：MAINTENANCE.md 工具计数 34→35；`test-gen-preset` 的 pwsh/wsl 断言从生成的 patch 移到 persona.txt（v10 措辞）
+- 验证：`pnpm typecheck` PASS · `pnpm test:checks` 14 PASS · `test-gen-preset` PASS · Electron RunAsNode 通道 `gen-preset --check` OK（DSH NEXT 2.0.19-next / dsh 0.2.1-rc.2）
+
 ## [0.5.1] — 2026-10-20（全加密分发包）
 
 - **npm 供应链扫描拒绝 0.5.0**（明文 references/362 篇 playbook + 插件机括源码触发自动审查，版本号被烧）——分发包全加密重构：
