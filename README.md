@@ -60,7 +60,7 @@
 |------|------|
 | 宿主 standard 定位 | 两种布局都探测：`<app>/Resources/app/node_modules`（旧）与 `<app>/Resources/app.asar/node_modules`（新）；Electron 进程内直接用 `process.resourcesPath` 精确定位 |
 | asar 可读性 | asar 内路径只有 Electron（含 RunAsNode）能读——`setup-preset.sh` / `install.sh desktop` 自动走 Electron 通道；纯系统 node 会得到带指引的错误提示 |
-| 健康卡片自动修复 | heal 在 Electron 进程内 spawn 时自动加 `ELECTRON_RUN_AS_NODE=1`，无需系统 node |
+| 健康卡片自动修复 | heal 在 Electron 进程内 spawn 时自动加 `ELECTRON_RUN_AS_NODE=1`，无需系统 node；0.5.1 密封包缺 `gen-preset.mjs` 导致 auto-heal 永久不可用的上游缺陷已修（scripts/\*\* 现随 payload.dat 封印、首导入自解压，persona 断言源回退到密封 core profile） |
 | 路径覆盖 | `DSH_DESKTOP_APP_DIR` 指向应用的 node_modules（未打包）或 `app.asar/node_modules`（asar）；`DSH_HOST_STANDARD_YML` 行为不变 |
 | 安装后生命周期 | 插件增删改由应用内插件管理页负责；`~/.dsh` 与 web 侧共享 |
 
