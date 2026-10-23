@@ -8,9 +8,11 @@ Object.defineProperty(exports, Symbol.toStringTag, { value: "Module" });
  *    native interactive capsule action button (Pill Action Button) via slot
  *    shadowing (`priority: -1`). Smoothly opens the security workbench in the
  *    right sidebar without navigating away, creating empty sessions, or reloading.
- * 2. Right sidebar workbench: Registers the 'eval' tab carrying model evaluation controls,
+ * 2. Session tab bar (对话/轨迹/helmd): Registers the "helmd" conversation
+ *    view carrying the full-size workbench panel — only in helmd-preset sessions.
+ * 3. Right sidebar workbench: Registers the 'eval' tab carrying model evaluation controls,
  *    the 19+ reverse engineering tool matrix shelf, and stream audit logs.
- * 3. Settings health card: Read-only folded PluginCard under Settings -> Plugins.
+ * 4. Settings health card: Read-only folded PluginCard under Settings -> Plugins.
  *
  * Strictly adheres to DSH design tokens (--dsw-alias-*) and zero emojis.
  */
@@ -278,6 +280,32 @@ exports.apply = function apply(ctx) {
 	// 2. Header Capsule Action Button: HelmdPresetCapsuleButton
 	//    Upgrades the header's helmd label into an interactive capsule button.
 	// --------------------------------------------------------------------------
+	// Session tab-bar view (对话 / 轨迹 / helmd): the workbench as a first-class
+	// per-session conversation view. Registered/unregistered by the capsule
+	// (which knows the session's agentPreset) so the tab only exists in helmd
+	// sessions; the host's slots.subscribe refreshes the tab bar live.
+	const WORKBENCH_VIEW_OPTIONS = {
+		name: "conversation.view",
+		id: "helmd-workbench",
+		order: 15,
+		label: () => "helmd",
+		// `inject` receives the sessionId; its return value becomes the
+		// component's props (same contract the host's chat/trajectory views use).
+		inject: (sessionId) => ({ sessionId: sessionId }),
+	};
+	function HelmdWorkbenchView(props) {
+		return h("div", {
+			style: {
+				height: "100%", overflowY: "auto", padding: 14,
+				fontSize: 12, lineHeight: 1.5, boxSizing: "border-box",
+			},
+		},
+			h(TabErrorBoundary, null,
+				h(HelmdWorkbenchPanel, { sessionId: props && props.sessionId })
+			)
+		);
+	}
+
 	function HelmdPresetCapsuleButton(props) {
 		const preset = props.useSessions ? props.useSessions(function (state) {
 			const s = state.byId && state.byId[props.sessionId];
@@ -287,6 +315,25 @@ exports.apply = function apply(ctx) {
 
 		const [hovered, setHovered] = React.useState(false);
 		const [active, setActive] = React.useState(false);
+
+		// The session tab (对话/轨迹/helmd) exists only while THIS session runs
+		// the helmd preset: register the conversation.view entry on mount and
+		// dispose it on unmount / preset change (hooks stay before the early
+		// returns below — unconditional hook order).
+		React.useEffect(() => {
+			if (preset !== "helmd") return undefined;
+			let dispose = null;
+			try {
+				dispose = ctx.slots.inject("conversation.view", function* () {
+					yield ctx.slots.register(WORKBENCH_VIEW_OPTIONS, HelmdWorkbenchView);
+				});
+			} catch (err) {}
+			return () => {
+				if (typeof dispose === "function") {
+					try { dispose(); } catch (err) {}
+				}
+			};
+		}, [preset]);
 
 		// If no preset is associated, follow AgentPresetLabel contract and return null
 		if (preset === undefined) return null;
@@ -678,6 +725,28 @@ exports.apply = function apply(ctx) {
 		);
 	}
 
+	// Error boundary: a broken tab must degrade to an inline message, never
+	// unmount the whole workbench panel (that was the Intercept Log whiteout).
+	class TabErrorBoundary extends React.Component {
+		constructor(props) { super(props); this.state = { error: null }; }
+		static getDerivedStateFromError(error) {
+			return { error: String((error && error.message) || error) };
+		}
+		render() {
+			if (this.state.error) {
+				return h("div", {
+					style: {
+						fontFamily: MONO, fontSize: 12, padding: 10, borderRadius: 8,
+						color: "var(--dsw-alias-state-error-primary, #ef4444)",
+						background: "var(--dsw-alias-bg-layer-2, #1a1a1d)",
+						border: "0.5px solid var(--dsw-alias-border-l2, rgba(255,255,255,0.08))",
+					},
+				}, "[helmd] 此面板渲染出错（不影响其他标签页）: " + this.state.error);
+			}
+			return this.props.children;
+		}
+	}
+
 	// ── 工作台面板 ────────────────────────────────────────────────
 	function HelmdWorkbenchPanel(props) {
 		// Dynamic data fetching (polled from host API routes)
@@ -754,9 +823,11 @@ exports.apply = function apply(ctx) {
 				),
 			),
 			h("div", { style: { flex: 1, overflowY: "auto", padding: 14, fontSize: 12, lineHeight: 1.5 } },
-				tab === "tools" ? h(ToolShelfTab, Object.assign({}, props, { registeredTools: data.tools })) : null,
-				tab === "attacks" ? h(AttackLogTab, { evalData: data.eval }) : null,
-				tab === "intercept" ? h(InterceptTab, { interceptData: data.intercept }) : null,
+				h(TabErrorBoundary, null,
+					tab === "tools" ? h(ToolShelfTab, Object.assign({}, props, { registeredTools: data.tools })) : null,
+					tab === "attacks" ? h(AttackLogTab, { evalData: data.eval }) : null,
+					tab === "intercept" ? h(InterceptTab, { interceptData: data.intercept }) : null,
+				)
 			)
 		);
 	}
