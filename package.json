@@ -1,7 +1,44 @@
 {
   "name": "helmd",
+  "version": "0.5.1",
   "private": true,
   "type": "module",
+  "main": "packages/helmd/dist/health.js",
+  "types": "packages/helmd/dist/health.d.ts",
+  "exports": {
+    ".": {
+      "types": "./packages/helmd/dist/health.d.ts",
+      "default": "./packages/helmd/dist/health.js"
+    },
+    "./agent": {
+      "types": "./packages/helmd/dist/index.d.ts",
+      "default": "./packages/helmd/dist/index.js"
+    },
+    "./client": "./client.js",
+    "./dist/*": "./packages/helmd/dist/*",
+    "./package.json": "./package.json"
+  },
+  "dsh": {
+    "bundle": {
+      "patch": [
+        "./cordis.patch.yml",
+        "./preset.generated.patch.yml"
+      ]
+    },
+    "client": {
+      "platform": "web",
+      "inject": [
+        "@deepseek-ai/dsh-client-ui-settings",
+        "@deepseek-ai/dsh-client-ui-sidebar-right"
+      ]
+    }
+  },
+  "peerDependencies": {
+    "@deepseek-ai/cordis": "^4.0.2",
+    "@deepseek-ai/dsh-settings": ">=0.1.5-rc.1 <0.2.0-0 || >=0.2.0-rc.1 <0.2.2-0",
+    "@deepseek-ai/dsh-tools": ">=0.1.5-rc.1 <0.2.0-0 || >=0.2.0-rc.1 <0.2.2-0",
+    "@deepseek-ai/schemastery": "^3.18.2"
+  },
   "scripts": {
     "build": "pnpm -r build",
     "typecheck": "pnpm -r exec tsc -p tsconfig.json --noEmit",

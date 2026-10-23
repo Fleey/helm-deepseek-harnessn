@@ -52,13 +52,17 @@ DSH NEXT → 设置 → 插件 → 添加。**推荐 release tarball URL**（单
 https://github.com/Fleey/helm-deepseek-harnessn/releases/latest/download/helmd.tgz
 ```
 
-其余可用通道（安装地址**必须指向 `packages/helmd` 子包**；仓库根 package.json 无 `dsh.bundle` 声明，填根地址会报「这个包没有声明组合包」）：
+其余可用通道（均装到同一运行时；**仓库根地址自本 fork 的 `main` 起可直接安装**）：
 
 ```text
+# 仓库根地址（根 package.json 已声明 dsh.bundle 并转发到 packages/helmd）：
+https://github.com/Fleey/helm-deepseek-harnessn.git
+github:Fleey/helm-deepseek-harnessn
+
 # npm 包名（上游发布版）：
 @adwmc/helm-d
 
-# github 路径（本 fork；pnpm 子目录语法 —— 注意 #<commitish>&path:，裸仓库地址或 "tree/main" 写法都会装成根包）：
+# 子目录写法（仅支持旧版仓库或不希望装根包时使用）：
 github:Fleey/helm-deepseek-harnessn#main&path:packages/helmd
 
 # 本地 tarball（开箱即用）：
@@ -74,6 +78,8 @@ github:Fleey/helm-deepseek-harnessn#main&path:packages/helmd
 ```
 
 > github 路径安装为什么可行：本 fork 已把 `packages/helmd/dist/` 构建产物提交入库（局部 negate 根 `.gitignore` 的 `dist/` 忽略），pnpm 对 git 依赖不执行构建脚本，没有 dist 的 git 安装无法启动。
+
+> 根地址为什么能装：根 `package.json` 声明了 `dsh.bundle.patch`，并用 `exports`/`main` 转发到 `packages/helmd` 的构建产物；根目录的 `cordis.patch.yml`、`preset.generated.patch.yml`、`client.js` 是子包同名文件的转发副本，唯一差异是 patch 行里的模块名写作 `helmd`（DSH 按**实际挂载的包名**作为 Loader 条目名与客户端模块 id，根包名是 `helmd` 而非 `@adwmc/helm-d`）。改子包的 patch/preset/client 时，需同步这两处转发文件。
 
 桌面版行为差异与适配：
 
