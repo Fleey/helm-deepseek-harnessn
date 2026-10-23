@@ -63,7 +63,7 @@ await report.check('window helpers agree on types and payloads', () => {
   assert.equal(eventCount(window, ASSISTANT_MESSAGE), 1)
   assert.deepEqual(toolCalls(window), [{ name: 'pwsh', args: '{"command":"ls"}' }])
 })
-await report.check('an empty newest assistant event stays empty (H-CoT keeps its original rule)', () => {
+await report.check('an empty newest assistant event stays empty', () => {
   const empty = event(ASSISTANT_MESSAGE, { message: { content: '' } })
   assert.equal(latestEventText([assistant, empty], ASSISTANT_MESSAGE), '')
 })

@@ -16,7 +16,7 @@ if (!existsSync(entry)) skip('api-routes', 'need packages/helmd/dist (run pnpm b
 const report = createReporter('api-routes')
 
 const ROUTE_BASE = '/api/helmd'
-const ROUTES = ['tools', 'hcot', 'intercept', 'jev']
+const ROUTES = ['tools', 'eval', 'intercept']
 
 /** Registry contents, reachable only through register/schemas — no layer internals. */
 const registered = []
@@ -90,7 +90,7 @@ await report.check('GET /tools reports the live registry through the public enum
   assert.deepEqual(payload.data, [...registered].sort())
 })
 
-for (const name of ['hcot', 'intercept', 'jev']) {
+for (const name of ['eval', 'intercept']) {
   await report.check(`GET /${name} answers 200`, async () => {
     const { status, payload } = await call(`${ROUTE_BASE}/${name}`)
     assert.equal(status, 200, `got ${status}: ${payload?.error ?? ''}`)

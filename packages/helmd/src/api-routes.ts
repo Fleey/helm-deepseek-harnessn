@@ -4,24 +4,23 @@
 // Routes:
 //   GET /api/helmd/health   → boot-time preset health verdict (host plane)
 //   GET /api/helmd/tools    → dynamic tool list from ctx.tools registry
-//   GET /api/helmd/hcot     → ledger summary + run-state projections
-//                             (0.1.7: run state leaves the settings document,
-//                              so /hcot is its only read surface)
+//   GET /api/helmd/eval     → model evaluation records + discovered models
 //   GET /api/helmd/intercept → stream interception stats (count, last time, snippet)
-//   GET /api/helmd/jev      → Jev plugin status (transport, model, key configured)
 
 import type { Context } from '@deepseek-ai/cordis'
 import { homedir } from 'node:os'
 import { join } from 'node:path'
-import { ledgerPath, loadLedger, loadCorpus, discoverAvailableModels } from './hcot-engine.js'
-import { getHcotLastResult, summarizeLedger, libraryIndex } from './hcot-settings.js'
+import fs from 'node:fs'
+import { discoverAvailableModels } from './model-probe.js'
+import { gateStatus, skipThisLaunch } from './gate.js'
 
 const ROUTE_BASE = '/api/helmd'
 
-/** Read the H-CoT results ledger (last N records). */
-async function readHcotLedger(limit = 20): Promise<Array<Record<string, unknown>>> {
+/** Read model evaluation records (last N records). */
+async function readProbeLedger(limit = 20): Promise<Array<Record<string, unknown>>> {
   try {
-    const ledgerPath = join(homedir(), '.dsh', 'helmd-tools', 'h_cot_results.jsonl')
+    const dshHome = process.env.DSH_HOME?.trim() || join(homedir(), '.dsh')
+    const ledgerPath = join(process.env.HELMD_TOOLS_DIR || join(dshHome, 'helmd-tools'), 'model-probes.jsonl')
     const { readFile } = await import('node:fs/promises')
     const raw = await readFile(ledgerPath, 'utf8')
     const lines = raw.split('\n').filter(l => l.trim())
@@ -36,8 +35,8 @@ function getInterceptStats(): { count: number; lastTime: string | null; lastSnip
   try {
     // llm-stream-hook.js exports getStreamInterceptionStats
     // But we can't import it directly (circular). Read from the log file instead.
-    const logPath = join(homedir(), '.dsh', 'helmd-stream-intercept.log')
-    const fs = require('node:fs')
+    const dshHome = process.env.DSH_HOME?.trim() || join(homedir(), '.dsh')
+    const logPath = join(dshHome, 'helmd-stream-intercept.log')
     if (!fs.existsSync(logPath)) return { count: 0, lastTime: null, lastSnippet: null }
     const lines: string[] = fs.readFileSync(logPath, 'utf8').split('\n').filter((l: string) => l.trim())
     const last = lines[lines.length - 1]
@@ -49,26 +48,6 @@ function getInterceptStats(): { count: number; lastTime: string | null; lastSnip
       lastSnippet: snippetMatch ? snippetMatch[1].slice(0, 120) : null,
     }
   } catch { return { count: 0, lastTime: null, lastSnippet: null } }
-}
-
-/** Check if TypeSafe API key is configured. */
-function checkJevStatus(): { transport: string; model: string; keyConfigured: boolean } {
-  const key = process.env.TYPESAFE_API_KEY
-    || process.env.JEV_API_KEY
-    || (() => {
-      try {
-        const p = join(homedir(), '.config', 'typesafe', 'key')
-        return require('node:fs').readFileSync(p, 'utf8').trim()
-      } catch { return '' }
-    })()
-    || (() => {
-      try {
-        const yaml = require('node:fs').readFileSync(join(homedir(), '.dsh', '.credentials.yaml'), 'utf8')
-        const m = yaml.match(/TYPESAFE_API_KEY:\s*['"]?([^'"\r\n]+)/)
-        return m ? m[1] : ''
-      } catch { return '' }
-    })()
-  return { transport: 'typesafe', model: 'jev-latest', keyConfigured: Boolean(key) }
 }
 
 export function registerHelmdApi(ctx: Context, getHealth?: () => unknown): void {
@@ -113,31 +92,19 @@ export function registerHelmdApi(ctx: Context, getHealth?: () => unknown): void 
     return tools.schemas().map((schema) => schema.name).sort()
   })
 
-  // H-CoT ledger summary + run-state projections (hcot-settings header contract:
-  // run state is projected here, never written back into the settings document).
-  get(`${ROUTE_BASE}/hcot`, async () => {
-    const records = await readHcotLedger(20)
+  // Model evaluation records and discovered model configuration.
+  get(`${ROUTE_BASE}/eval`, async () => {
+    const records = await readProbeLedger(20)
     const rounds = records.map((r, i) => ({
       round: i + 1,
-      strategy: (r.strategy as Record<string, unknown>)?.frame ?? r.variant ?? 'unknown',
-      refused: Boolean(r.refused_final),
-      leaked: Boolean(r.first_fragment_leaked),
-      usable: Boolean(r.final_usable),
-      broke: Boolean(r.broke ?? r.break),
+      strategy: r.strategy ?? 'baseline',
+      classification: r.classification ?? 'empty',
+      status: r.status ?? 0,
+      elapsedMs: r.elapsedMs ?? 0,
+      model: r.model ?? 'unknown',
+      timestamp: r.timestamp ?? null,
     }))
-    const broke = rounds.some(r => r.broke)
-
-    // Each projection degrades to its empty shape on purpose: a missing ledger
-    // or corpus must not take the whole route down (the panel polls it).
-    let ledgerSummary = '[]'
-    let slotLibraryIndex = '{"frames":[],"enablers":[],"continuations":[]}'
     let availableModels: Array<{ id: string; provider: string; hasKey: boolean }> = []
-    try {
-      ledgerSummary = summarizeLedger(await loadLedger(ledgerPath({})))
-    } catch {}
-    try {
-      slotLibraryIndex = libraryIndex(await loadCorpus())
-    } catch {}
     try {
       availableModels = (await discoverAvailableModels(ctx)).map(m => ({
         id: m.id, provider: m.provider, hasKey: m.hasKey,
@@ -145,9 +112,8 @@ export function registerHelmdApi(ctx: Context, getHealth?: () => unknown): void 
     } catch {}
 
     return {
-      rounds, broke, total: records.length,
-      ledgerSummary, slotLibraryIndex, availableModels,
-      lastResult: getHcotLastResult(),
+      rounds, total: records.length,
+      availableModels,
     }
   })
 
@@ -156,8 +122,13 @@ export function registerHelmdApi(ctx: Context, getHealth?: () => unknown): void 
     return getInterceptStats()
   })
 
-  // Jev status
-  get(`${ROUTE_BASE}/jev`, () => {
-    return checkJevStatus()
+  // Star gate: status snapshot + skip-for-this-launch (web gate panel data).
+  get(`${ROUTE_BASE}/gate`, () => {
+    return gateStatus()
   })
+  get(`${ROUTE_BASE}/gate/skip`, () => {
+    skipThisLaunch()
+    return gateStatus()
+  })
+
 }

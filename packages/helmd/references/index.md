@@ -18,7 +18,7 @@
 | **Android 逆向** | [android/index.md](android/index.md) | APK/AAB/DEX/smali 逆向、Frida 插桩、加壳脱壳、指纹识别、防撤回与协议分析 |
 | **Native 二进制** | [native/index.md](native/index.md) | PE/ELF/Mach-O、保护器脱壳(VMP/Themida/OLLVM)、反混淆、JVM 常量解密、PWN/漏洞利用、Hook、Patch |
 | **Web 安全** | [web/index.md](web/index.md) | JS 逆向、API 签名、SQLi/XSS/SSRF/RCE/IDOR/XXE/SSTI/认证绕过等渗透测试与利用 Playbook |
-| **AI 安全** | [ai-security/index.md](ai-security/index.md) | Prompt 注入、模型越狱、H-CoT 思维链劫持测试与防御、Agent 安全评估、Simulation |
+| **AI 安全** | [ai-security/index.md](ai-security/index.md) | Prompt 注入、模型安全评测与防御、拒答恢复路由、Agent 安全评估、Simulation |
 | **恶意代码分析** | [malware/index.md](malware/index.md) | C2 通信与流量、持久化机制、IOC 提取、YARA 规则生成、威胁样本研判 |
 | **网络协议** | [protocol/index.md](protocol/index.md) | PCAP 抓包解析、TCP/UDP 流重组、HAR 会话分析、WebSocket/gRPC/Protobuf 协议逆向 |
 | **证据与报告** | [evidence/index.md](evidence/index.md) | Case 工作区管理、证据链 E-编号维护、Timeline 生成、Findings 结论记录 |

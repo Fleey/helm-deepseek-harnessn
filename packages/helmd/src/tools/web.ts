@@ -1,12 +1,11 @@
 import type { Context } from '@deepseek-ai/cordis'
 import { defineTool } from '@deepseek-ai/dsh-tools'
-import { resolve, sep } from 'node:path'
+import { join, resolve, sep } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { readTextSeam, runSeam, assertWithinRoot } from '../seam.js'
+import { packageRoot, readTextSeam, runSeam, assertWithinRoot  } from '../seam.js'
 
-const refRoot = resolve(fileURLToPath(new URL('.', import.meta.url)), '../../references/web')
-const scriptRoot = resolve(fileURLToPath(new URL('.', import.meta.url)), '../../scripts/web')
-const packageRoot = resolve(fileURLToPath(new URL('.', import.meta.url)), '../..')
+const refRoot = join(packageRoot(), 'references', 'web')
+const scriptRoot = join(packageRoot(), 'scripts', 'web')
 
 export function registerWebTools(ctx: Context): void {
   ctx.tools.register(defineTool({
@@ -28,7 +27,7 @@ export function registerWebTools(ctx: Context): void {
     },
     output: { schema: { type: 'string' }, render: (_a: unknown, v: string) => [{ type: 'text', text: v }] },
     async execute(args: any) {
-      return await runSeam(ctx, ['python', resolve(scriptRoot, 'web-analysis_bot_analyze.py'), args.file], packageRoot)
+      return await runSeam(ctx, ['python', resolve(scriptRoot, 'web-analysis_bot_analyze.py'), args.file], packageRoot())
     },
   }))
 }

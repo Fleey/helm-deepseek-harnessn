@@ -9,7 +9,6 @@
 - bypass-framework-matrix.md
 - canned-workflows.md
 - carrier-construction-guide.md
-- h-cot-chain-of-thought-hijacking.md
 - input-normalization-lexicon.md
 - llm-attack-methodology.md
 - llm-injection-playbook.md
@@ -18,6 +17,7 @@
 - model-security-analysis-guide.md
 - payload-effectiveness-evaluation.md
 - prompt-injection-patterns.md
+- refusal-prompt-routing.md
 
 ## hack-skills 融合（hs-*，源自 [yaklang/hack-skills](https://github.com/yaklang/hack-skills)）
 

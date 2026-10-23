@@ -1,12 +1,11 @@
 import type { Context } from '@deepseek-ai/cordis'
 import { defineTool } from '@deepseek-ai/dsh-tools'
-import { resolve } from 'node:path'
+import { join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { readTextSeam, runSeam, assertWithinRoot } from '../seam.js'
+import { packageRoot, readTextSeam, runSeam, assertWithinRoot  } from '../seam.js'
 
-const refRoot = resolve(fileURLToPath(new URL('.', import.meta.url)), '../../references/protocol')
-const scriptRoot = resolve(fileURLToPath(new URL('.', import.meta.url)), '../../scripts/protocol')
-const packageRoot = resolve(fileURLToPath(new URL('.', import.meta.url)), '../..')
+const refRoot = join(packageRoot(), 'references', 'protocol')
+const scriptRoot = join(packageRoot(), 'scripts', 'protocol')
 
 export function registerProtocolTools(ctx: Context): void {
   ctx.tools.register(defineTool({
@@ -28,7 +27,7 @@ export function registerProtocolTools(ctx: Context): void {
     },
     output: { schema: { type: 'string' }, render: (_a: unknown, v: string) => [{ type: 'text', text: v }] },
     async execute(args: any) {
-      return await runSeam(ctx, ['python', resolve(scriptRoot, 'protocol/pcap_minimal.py'), args.file], packageRoot)
+      return await runSeam(ctx, ['python', resolve(scriptRoot, 'protocol/pcap_minimal.py'), args.file], packageRoot())
     },
   }))
   ctx.tools.register(defineTool({
@@ -40,7 +39,7 @@ export function registerProtocolTools(ctx: Context): void {
     },
     output: { schema: { type: 'string' }, render: (_a: unknown, v: string) => [{ type: 'text', text: v }] },
     async execute(args: any) {
-      return await runSeam(ctx, ['python', resolve(scriptRoot, 'protocol/protocol_state_machine.py'), args.messages, ...(args.out != null ? [args.out] : [])], packageRoot)
+      return await runSeam(ctx, ['python', resolve(scriptRoot, 'protocol/protocol_state_machine.py'), args.messages, ...(args.out != null ? [args.out] : [])], packageRoot())
     },
   }))
   ctx.tools.register(defineTool({
@@ -51,7 +50,7 @@ export function registerProtocolTools(ctx: Context): void {
     },
     output: { schema: { type: 'string' }, render: (_a: unknown, v: string) => [{ type: 'text', text: v }] },
     async execute(args: any) {
-      return await runSeam(ctx, ['python', resolve(scriptRoot, 'parse_har_fields.py'), args.har], packageRoot)
+      return await runSeam(ctx, ['python', resolve(scriptRoot, 'parse_har_fields.py'), args.har], packageRoot())
     },
   }))
 }

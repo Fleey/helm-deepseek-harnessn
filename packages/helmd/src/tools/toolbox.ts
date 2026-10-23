@@ -1,10 +1,10 @@
 import type { Context } from '@deepseek-ai/cordis'
 import { defineTool } from '@deepseek-ai/dsh-tools'
-import { resolve } from 'node:path'
+import { join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { readTextSeam } from '../seam.js'
+import { packageRoot, readTextSeam  } from '../seam.js'
 
-const refRoot = resolve(fileURLToPath(new URL('.', import.meta.url)), '../../references/toolbox')
+const refRoot = join(packageRoot(), 'references', 'toolbox')
 
 // 信号 -> 首选工具 | 替代 | 存证格式（按分类分组）
 const rules: Record<string, string> = {
@@ -88,11 +88,8 @@ const rules: Record<string, string> = {
   ember: 'EMBER → pe-inspector https://github.com/la-1314/pe-inspector/releases',
 
   // 9. AI / LLM 安全
-  'h-cot': 'H-CoT 思维链劫持 -> references/ai-security/h-cot-chain-of-thought-hijacking.md | 模板采集→伪造执行思路→注入劫持 | DeepSeek 先答后撤回需捕获首段输出；Gemini 指令跟随，首次突破价值高',
-  hcot: 'H-CoT 思维链劫持 -> references/ai-security/h-cot-chain-of-thought-hijacking.md',
-  '思维链': '越狱/H-CoT -> references/ai-security/model-security-analysis-guide.md + h-cot-chain-of-thought-hijacking.md',
-  jailbreak: '越狱 -> references/ai-security/{model-security-analysis-guide,bypass-framework-matrix,h-cot-chain-of-thought-hijacking}.md',
-  llm: 'LLM 安全 -> references/ai-security/ + llm_sim 工具',
+  jailbreak: '模型安全评测 -> references/ai-security/{model-security-analysis-guide,bypass-framework-matrix}.md；在自有测试样本上比较响应分类、拒答一致性和审计记录',
+  llm: 'LLM 应用安全评测 -> references/ai-security/ + llm_probe / llm_sim 工具',
 }
 
 export function registerToolboxTools(ctx: Context): void {

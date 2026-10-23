@@ -15,7 +15,7 @@
 
 | 层 | 谁写入 | 内容 |
 |----|--------|------|
-| Profile | `dsh plugin add` / install.ps1 / update.ps1 | 33 个工具（router 4 + 账本 1 + 案件生命周期 5 + 工具发现 1 + 领域 22）、`/hcot` 内部命令、bootstrap 收窄、运行时钩子层（tool-wash / persist / advisory / hcot / llm-stream）、references、scripts、工作台 UI |
+| Profile | `dsh plugin add` / install.ps1 / update.ps1 | 35 个工具（router 4 + 账本 1 + 案件生命周期 5 + 工具发现 1 + 领域 24）、bootstrap 收窄、运行时钩子层（tool-wash / persist / advisory / llm-stream）、references、scripts、工作台 UI |
 | Preset | 随包分发 `preset.generated.patch.yml`（宿主经 `dsh.bundle.patch` 读取） | 一行 `@deepseek-ai/dsh-agent-preset` 组合：luna persona、激活词 `helmd`、宿主全套工具行 + `@adwmc/helm-d/agent` |
 
 **单一事实源表**
@@ -25,10 +25,10 @@
 | persona 文本 | `packages/helmd/presets/persona.txt` | repack 经 `scripts/gen-preset.mjs` 注入 → `packages/helmd/preset.generated.patch.yml`（生成物）→ tgz |
 | preset 平台行 | 宿主内置 `standard` | `gen-preset.mjs` 读取宿主 `<dsh>/node_modules/@deepseek-ai/dsh-web-app/presets/standard.patch.yml`，保留宿主全部行，只替换 persona 行内容、改写组合行头（`preset-helmd` / `id: helmd` / `order` / `description` 取自 `packages/helmd/presets/preset.yml`）、末尾追加 `@adwmc/helm-d/agent` 行。安装/更新脚本在目标机再次生成（bundle 内 `scripts/gen-preset.mjs` 走 `--out`），生成失败才保留 tgz 快照 |
 | 工具代码 | `packages/helmd/src/*.ts` | `pnpm build` → dist |
-| 依赖 cohort | `pnpm-workspace.yaml` `overrides`（编译期全家 + cordis + schemastery；与目标宿主同代，当前 `0.2.0-rc.2` / cordis `4.0.4` / schemastery `3.18.4`） | `pnpm install` → `pnpm-lock.yaml` + node_modules；`pnpm peers check` 必须无问题（跨 cohort peer = 迁移未完成）。宿主真实形状由 `pnpm test:checks` 的 host-seam 那几份直接跑在装机宿主包上把关，编译期 cohort 落后不会伪装成绿。钉宿主时留意 launcher 的 `^0.2.0-rc.N` 会让嵌套宿主包上浮一档，`dsh --version` 只反映 launcher。0.2 起 peer 必须显式带 `^0.2.0-rc.1` 分支（`^0.2.0` 不收 rc），且 `dsh-code-runtime` 已改名为 `dsh-ptc-runtime` |
+| 依赖 cohort | `pnpm-workspace.yaml` `overrides`（编译期全家 + cordis + schemastery；与目标宿主同代，当前 `0.2.1-rc.2` / cordis `4.0.4` / schemastery `3.18.4`） | `pnpm install` → `pnpm-lock.yaml` + node_modules；`pnpm peers check` 必须无问题（跨 cohort peer = 迁移未完成）。宿主真实形状由 `pnpm test:checks` 的 host-seam 那几份直接跑在装机宿主包上把关，编译期 cohort 落后不会伪装成绿。钉宿主时留意 launcher 的 `^0.2.0-rc.N` 会让嵌套宿主包上浮一档，`dsh --version` 只反映 launcher。0.2 起 peer 必须显式带 `>=0.2.0-rc.1 <0.2.2-0` 分支，且 `dsh-code-runtime` 已改名为 `dsh-ptc-runtime` |
 | 领域文档 | `packages/helmd/references/` | 直接打包 |
-| H-CoT 语料与账本 | 语料 `packages/helmd/scripts/ai-security/h_cot_variants.json`（纯数据）；结果账本 `~/.dsh/helmd-tools/h_cot_results.jsonl`（`HELMD_TOOLS_DIR` 可重定向） | 引擎直接读写；账本经工作台或 `/hcot` 清理/分组删除 |
-| 工作台 UI | `packages/helmd/client.js`（浏览器半，免构建）+ `src/hcot-settings.ts`（host 半，`pnpm build`）+ `cordis.patch.yml` 的 `dsh.client.inject` | 配置与动作请求走 settings 条目 `helmd-hcot-settings`（UI 写、宿主消费后清），运行态走 `/api/helmd/*` HTTP 投影，两条面不再混用 |
+| 模型评测记录 | `~/.dsh/helmd-tools/model-probes.jsonl`（`HELMD_TOOLS_DIR` 可重定向） | `llm_probe` 写入；工作台 `/api/helmd/eval` 展示 |
+| 工作台 UI | `packages/helmd/client.js`（浏览器半，免构建）+ `cordis.patch.yml` 的 `dsh.client.inject` | 工具、模型评测与拦截数据走 `/api/helmd/*` HTTP 投影 |
 | 安装脚本 | 根目录 `install.{ps1,sh,bat}` | release assets（不进 tgz） |
 | 更新脚本 | `scripts/update.{ps1,sh}` | 仅仓库，随 git 分发 |
 
@@ -100,7 +100,7 @@ Invoke-WebRequest -Method Head "https://github.com/ADWMC/helm-d/releases/latest/
 - 描述里的**数字声明会被 reviewer 和 decay scan 对照代码核验**（工具数、版本号）。改了工具集必须同步：
   - README.md / README.en.md 的徽章行和目录树行
   - registry yml 的 en/zh description（需向上游提 PR）
-- 当前计数基准：33 个工具（router 4 + tool_memory 1 + 案件生命周期 5（含 save_evidence）+ find_tool 1 + 领域 22；create_case 已废弃）。核对方法：`pnpm test:checks` 里的 `tool-catalog` 检查——它读本行声明的数字与 mock-ctx 实际注册名比对，不一致即红（改工具集而忘了改文档会当场失败）。
+- 当前计数基准：35 个工具（router 4 + tool_memory 1 + 案件生命周期 5（含 save_evidence）+ find_tool 1 + 领域 24；create_case 已废弃）。核对方法：`pnpm test:checks` 里的 `tool-catalog` 检查——它读本行声明的数字与 mock-ctx 实际注册名比对，不一致即红（改工具集而忘了改文档会当场失败）。
 - fork `ADWMC/awesome-dsh-plugin`：PR 合并后即可删（`gh repo delete --yes`）；再提 PR 时重新 fork 即可
 
 ### 4.1 各商店收录台账（2026-09-14/15，v0.3.1）
@@ -174,7 +174,7 @@ PR #2708        已合并 (2026-08-23)
 - [ ] `pnpm build` 无错
 - [ ] `pnpm peers check` 无问题（依赖图 cohort 与宿主一致，无跨 cohort peer）
 - [ ] `pnpm test:checks` 全部绿（自动跑 `scripts/checks/*.check.mjs`；host seam 那几份直接跑在宿主真实 `dsh-session` 包上，宿主换访问器即红，不必等真机会话才暴露）
-- [ ] 手工验收脚本（不进 run-all，按需跑）：`node scripts/checks/hcot-engine-verify.mjs`（Node 引擎 SSE 端到端：mock /chat/completions，拒绝→突破）、`node scripts/checks/hcot-workspace-verify.mjs`（client.js 契约 + 工作台插槽渲染）、`node scripts/checks/hcot-perf-bench.mjs`（evidence/advisory 热点性能基准）、`node scripts/checks/session-timing.mjs`（解压 session.v3.jsonl.zstd 做 step/turn 耗时归因）
+- [ ] 手工验收脚本（不进 run-all，按需跑）：`node scripts/checks/model-probe.check.mjs`（SSE 响应采集、推理字段排除与 JSONL 审计）、`node scripts/checks/session-timing.mjs`（解压 session.v3.jsonl.zstd 做 step/turn 耗时归因）
 - [ ] mock-ctx 工具数与 README/registry 一致（由 `pnpm test:checks` 的 `tool-catalog` 机械核对，无需手数）
 - [ ] `repack` 后 tgz 内含 `preset.generated.patch.yml` + `presets/{persona.txt,preset.yml}` + `scripts/{gen-preset.mjs,setup-preset.ps1,setup-preset.sh}`，且**不再**含任何 `agent.cordis.yml`
 - [ ] setup-preset 从安装位置跑通，输出 `unchanged:`（即与仓库产物逐字节一致）

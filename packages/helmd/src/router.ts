@@ -5,6 +5,7 @@ import { resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 import { readTextSeam, assertWithinRoot } from './seam.js'
+import { readSealedReference } from './sealed-refs.js'
 import { getLevel, setLevel, normalizeLevel, renderContract } from './mode.js'
 import { shelfSummary } from './ledger.js'
 import { submitAdvisory, renderAdvisoryStats } from './advisory.js'
@@ -29,8 +30,7 @@ const catalog: Record<string, string> = {
   native: 'PE/ELF/Mach-O/shellcode -> native_reference + references/native/',
   protocol: 'PCAP/TCP/UDP/gRPC/Protobuf -> pcap_parse + references/protocol/',
   malware: 'C2/persistence/IOC/sample -> ioc_extract/yara_gen + references/malware/',
-  ai: 'prompt/model/injection -> llm_sim + references/ai-security/',
-  hcot: 'H-CoT 思维链劫持 -> references/ai-security/h-cot-chain-of-thought-hijacking.md — 模板采集/思路伪造/注入劫持，绕过模型安全判断',
+  ai: 'prompt/model security -> llm_probe + references/ai-security/',
   evidence: 'case 工作区/报告/存证 -> begin_case + case_status + references/evidence/',
   // 信号级路由 (signal -> tool -> reference)
   apk: 'APK/AAB/DEX -> apk_fingerprint -> android',
@@ -41,7 +41,7 @@ const catalog: Record<string, string> = {
   pcap: 'PCAP/TCP/UDP -> pcap_parse -> protocol',
   har: 'HAR/request -> parse_har -> protocol',
   ioc: 'IOC/hash/domain -> ioc_extract/yara_gen -> malware',
-  llm: 'prompt/injection -> llm_sim -> ai',
+  llm: 'model evaluation / prompt security -> llm_probe -> ai',
 }
 
 // 确定性路由表（dhicoc master-route 契约：先路由后动手，PRIMARY + 一句依据）
@@ -62,15 +62,14 @@ const ROUTE_TABLE: Route[] = [
   { key: 'har', kw: ['har', 'http', '请求', 'response', '接口'], why: 'HTTP 会话' },
   { key: 'ioc', kw: ['ioc', 'c2', '域名', 'domain', 'hash', '持久化', 'persistence'], why: '威胁指标' },
   { key: 'malware', kw: ['恶意', 'malware', '病毒', 'backdoor', '木马', 'yara'], why: '恶意样本判定' },
-  { key: 'hcot', kw: ['h-cot', 'hcot', 'chain-of-thought', '思维链', '思维链劫持', 'cot 劫持'], why: 'H-CoT 思维链劫持 / 模型越狱' },
-  { key: 'llm', kw: ['prompt', '注入', 'injection', 'llm', '越狱', 'jailbreak'], why: 'LLM 应用安全' },
+  { key: 'llm', kw: ['prompt', '提示词', '模型评测', '模型安全', '大模型', 'injection', 'llm', '越狱', 'jailbreak'], why: 'LLM 应用安全' },
   { key: 'web', kw: ['sqli', 'xss', 'ssrf', 'ssti', 'xxe', 'rce', 'lfi', '文件上传', '越权', 'idor', 'jwt', 'oauth', 'csrf', '渗透', 'pentest', 'webshell'], why: 'Web 攻击特征 -> references/web/（含 hs-* 攻击 playbook）' },
   { key: 'native', kw: ['exploit', 'pwn', '提权', 'privesc', 'kerberos', 'ntlm', '内网', '横向', 'rop', '堆溢出', 'heap'], why: '主机/二进制攻击特征 -> references/native/（含 hs-* 攻击 playbook）' },
   { key: 'evidence', kw: ['报告', 'report', '存证', '证据', 'case'], why: '取证与报告' },
   { key: 'install', kw: ['安装', '下载', 'install', 'download', '环境', 'setup', '装'], why: '工具获取' },
   { key: 'network', kw: ['超时', 'timeout', '连不上', '无法连接', '无法访问', '代理', 'proxy', 'dns', 'connection refused', 'connection reset', 'unreachable', '网络不通', '下载失败'], why: '出站通道故障 -> 探本机代理，探不到则直连+换源' },
   { key: 'tools', kw: ['tools', '工具列表', '查看工具', '工具箱', '有哪些工具', '所有工具', '工具货架', '逆向工具'], why: '查询 19+ 逆向与安全分析工具货架及调用示例' },
-  { key: 'status', kw: ['status', '状态看板', '拦截状态', '健康状态', '检查状态'], why: '查询 helmd 引擎健康、流式拦截审计与 H-CoT 状态' },
+  { key: 'status', kw: ['status', '状态看板', '拦截状态', '健康状态', '检查状态'], why: '查询 helmd 引擎健康与流式拦截审计状态' },
   { key: 'tree', kw: ['分析', 'analyze', '看看', '这个文件', 'unknown', '分诊'], why: '未定型样本走决策树' },
 ]
 
@@ -78,7 +77,7 @@ const ROUTE_TABLE: Route[] = [
 const ROUTE_TOOL: Record<string, string> = {
   apk: 'apk_fingerprint', shell: 'detect_packer', strings: 'scan_strings', crypto: 'encoding_detect',
   pcap: 'pcap_parse', har: 'parse_har', ioc: 'ioc_extract', malware: 'yara_gen',
-  hcot: 'hcot_attack', llm: 'llm_sim', tree: 'triage_artifact', evidence: 'begin_case',
+  llm: 'llm_probe', tree: 'triage_artifact', evidence: 'begin_case',
   tools: 'skill_catalog', status: 'case_status',
 }
 
@@ -223,6 +222,13 @@ export function registerRouterTools(ctx: Context): void {
     },
     output: { schema: { type: 'string' }, render: (_a: unknown, v: string) => [{ type: 'text', text: v }] },
     async execute(args: { path: string }) {
+      // Sealed bundle first (installed packages ship references.dat, no
+      // plaintext references/ directory); plaintext dir is the repo dev path.
+      const rel = (args.path ?? '').replace(/\\/g, '/').replace(/^\//, '')
+      const sealed = readSealedReference(rel)
+      if (sealed !== undefined) return sealed
+      const sealedIndex = readSealedReference(rel ? rel.replace(/\/?$/, '/index.md') : 'index.md')
+      if (sealedIndex !== undefined) return sealedIndex
       const target = resolveReferenceFile(refRoot, args.path)
       if (target) {
         assertWithinRoot(target, refRoot)

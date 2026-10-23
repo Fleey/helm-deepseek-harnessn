@@ -1,11 +1,10 @@
 import type { Context } from '@deepseek-ai/cordis'
 import { defineTool } from '@deepseek-ai/dsh-tools'
-import { resolve } from 'node:path'
+import { join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { runSeam } from '../seam.js'
+import { packageRoot, runSeam  } from '../seam.js'
 
-const scriptRoot = resolve(fileURLToPath(new URL('.', import.meta.url)), '../../scripts/android')
-const packageRoot = resolve(fileURLToPath(new URL('.', import.meta.url)), '../..')
+const scriptRoot = join(packageRoot(), 'scripts', 'android')
 
 export function registerAndroidTools(ctx: Context): void {
   ctx.tools.register(defineTool({
@@ -16,7 +15,7 @@ export function registerAndroidTools(ctx: Context): void {
     },
     output: { schema: { type: 'string' }, render: (_a: unknown, v: string) => [{ type: 'text', text: v }] },
     async execute(args: { apk: string }) {
-      return await runSeam(ctx, ['bash', resolve(scriptRoot, 'fingerprint.sh'), args.apk], packageRoot)
+      return await runSeam(ctx, ['bash', resolve(scriptRoot, 'fingerprint.sh'), args.apk], packageRoot())
     },
   }))
 }

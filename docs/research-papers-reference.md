@@ -1,5 +1,7 @@
 # helm-d 项目核心技术与相关学术论文参考指南
 
+> **历史归档说明（2026-10-18）**：本文中的 H-CoT 章节是研究背景，不代表当前功能或执行路径。现行实现以模型鲁棒性评测和受控拒答恢复为准。
+
 > 本文档针对 `helm-d`（DeepSeek Harness 破甲一体化安全分析插件）的核心机制与理论基础，梳理了学术界在**大模型思维链劫持（H-CoT / Jailbreak）**、**自主网络安全与渗透测试智能体（Autonomous Security Agents）**、**LLM 辅助软件逆向与二进制分析（Reverse Engineering & Binary Analysis）**以及**动态工具调度与按需上下文（Agent Tool Provisioning & Context Scheduling）**四大维度的代表性研究论文。供后续技术演进、理论支撑和机制对照参考。
 
 ---

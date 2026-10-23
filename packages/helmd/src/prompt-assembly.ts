@@ -73,8 +73,12 @@ type WaterfallListener = (
 const activeAgents = new Map<string, AgentLike>()
 
 /** Register one listener on the host prompt-assembly waterfall. */
-export function registerAssemblyListener(ctx: Context, listener: AssemblyListener): void {
-  const host = ctx as unknown as { on(name: string, handler: any): void }
+export function registerAssemblyListener(
+  ctx: Context,
+  listener: AssemblyListener,
+  options?: { prepend?: boolean },
+): void {
+  const host = ctx as unknown as { on(name: string, handler: any, options?: unknown): void }
   // Track live agents on creation
   host.on('agent/created', (payload: any) => {
     const ag = payload?.agent
@@ -105,7 +109,7 @@ export function registerAssemblyListener(ctx: Context, listener: AssemblyListene
       })
     }
     return result
-  })
+  }, options?.prepend === true ? { prepend: true } : undefined)
 }
 
 /** Get live agent by session ID if registered. */

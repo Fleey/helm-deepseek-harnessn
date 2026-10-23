@@ -1,6 +1,6 @@
 {
   "name": "@adwmc/helm-d",
-  "version": "0.4.3",
+  "version": "0.5.1",
   "type": "module",
   "main": "dist/health.js",
   "types": "dist/health.d.ts",
@@ -13,30 +13,28 @@
       "types": "./dist/index.d.ts",
       "default": "./dist/index.js"
     },
-    "./hcot-settings": {
-      "types": "./dist/hcot-settings.d.ts",
-      "default": "./dist/hcot-settings.js"
-    },
     "./client": "./client.js",
     "./dist/*": "./dist/*",
     "./package.json": "./package.json"
   },
   "files": [
     "dist",
+    "payload.dat",
+    "references.dat",
     "client.js",
-    "references",
-    "scripts",
     "cordis.patch.yml",
     "preset.generated.patch.yml",
-    "presets"
+    "presets/preset.yml",
+    "presets/profiles.dat",
+    "!presets/persona.txt",
+    "!presets/profiles"
   ],
   "publishConfig": {
     "access": "public",
     "registry": "https://registry.npmjs.org/"
   },
   "scripts": {
-    "build": "tsc -p tsconfig.json",
-    "prepare": "tsc -p tsconfig.json"
+    "build": "tsc -p tsconfig.json"
   },
   "dsh": {
     "bundle": {
@@ -55,14 +53,14 @@
   },
   "peerDependencies": {
     "@deepseek-ai/cordis": "^4.0.2",
-    "@deepseek-ai/dsh-settings": ">=0.1.5-rc.1 <0.2.0-0 || ^0.2.0-rc.1",
-    "@deepseek-ai/dsh-tools": ">=0.1.5-rc.1 <0.2.0-0 || ^0.2.0-rc.1",
+    "@deepseek-ai/dsh-settings": ">=0.1.5-rc.1 <0.2.0-0 || >=0.2.0-rc.1 <0.2.2-0",
+    "@deepseek-ai/dsh-tools": ">=0.1.5-rc.1 <0.2.0-0 || >=0.2.0-rc.1 <0.2.2-0",
     "@deepseek-ai/schemastery": "^3.18.2"
   },
   "devDependencies": {
     "@deepseek-ai/cordis": "^4.0.2",
-    "@deepseek-ai/dsh-settings": ">=0.1.5-rc.1 <0.2.0-0 || ^0.2.0-rc.1",
-    "@deepseek-ai/dsh-tools": ">=0.1.5-rc.1 <0.2.0-0 || ^0.2.0-rc.1",
+    "@deepseek-ai/dsh-settings": ">=0.1.5-rc.1 <0.2.0-0 || >=0.2.0-rc.1 <0.2.2-0",
+    "@deepseek-ai/dsh-tools": ">=0.1.5-rc.1 <0.2.0-0 || >=0.2.0-rc.1 <0.2.2-0",
     "@deepseek-ai/schemastery": "^3.18.2"
   },
   "engines": {

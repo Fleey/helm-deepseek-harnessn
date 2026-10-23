@@ -152,103 +152,6 @@ export function searchLedger(query: string): string {
 }
 
 /** Shelf overview + top dead-ends for the route card. Silent when ledgers absent/empty. */
-// ── H-CoT 结果账本回流 ───────────────────────────────────────────────
-const HCOT_MIN_SAMPLES = 3
-
-/** Result-ledger path; mirrors the Python runner's resolution order. */
-export function hcotLedgerPath(): string {
-  return process.env.HELMD_HCOT_LEDGER?.trim() || join(ledgerDir(), 'h_cot_results.jsonl')
-}
-
-interface HcotAgg {
-  model: string
-  variant: string
-  total: number
-  brk: number
-  transfer: number
-  transferTotal: number
-  score: number
-}
-
-function readHcotRecords(): Array<Record<string, unknown>> {
-  const p = hcotLedgerPath()
-  if (!existsSync(p)) return []
-  const out: Array<Record<string, unknown>> = []
-  for (const line of readFileSync(p, 'utf8').split('\n')) {
-    const trimmed = line.trim()
-    if (!trimmed) continue
-    try {
-      out.push(JSON.parse(trimmed) as Record<string, unknown>)
-    } catch {
-      // malformed ledger line — skip it rather than fail the sync
-    }
-  }
-  return out
-}
-
-function hcotAggregate(): HcotAgg[] {
-  const map = new Map<string, HcotAgg>()
-  for (const r of readHcotRecords()) {
-    const model = typeof r.model === 'string' ? r.model : '?'
-    const variant = typeof r.variant === 'string' ? r.variant : ''
-    if (!variant) continue
-    const key = `${model}::${variant}`
-    const a = map.get(key) ?? { model, variant, total: 0, brk: 0, transfer: 0, transferTotal: 0, score: 0 }
-    const brk = Boolean(r.break ?? r.first_fragment_leaked)
-    a.total += 1
-    if (brk) a.brk += 1
-    if (typeof r.transfer_compliant === 'boolean') {
-      a.transferTotal += 1
-      if (r.transfer_compliant) a.transfer += 1
-    }
-    a.score += typeof r.score === 'number' ? r.score : brk ? 1 : 0
-    map.set(key, a)
-  }
-  return [...map.values()]
-}
-
-/** Fold the H-CoT result ledger into the tool + dead-end ledgers. Idempotent. */
-export function syncHcotLedger(): string {
-  const aggs = hcotAggregate()
-  if (aggs.length === 0) return ''
-  const byModel = new Map<string, HcotAgg[]>()
-  for (const a of aggs) {
-    const list = byModel.get(a.model) ?? []
-    list.push(a)
-    byModel.set(a.model, list)
-  }
-  const notes: string[] = []
-  for (const [model, list] of byModel) {
-    const mature = list.filter((a) => a.total >= HCOT_MIN_SAMPLES)
-    const best = mature.slice().sort((x, y) => y.score / y.total - x.score / x.total)[0]
-    if (best && best.score > 0) {
-      const transfer = best.transferTotal ? `${best.transfer}/${best.transferTotal}` : '-'
-      const content = `model=${model} 首选变体=${best.variant} break=${best.brk}/${best.total} transfer=${transfer} mean_score=${(best.score / best.total).toFixed(2)}`
-      if (!ensureFile(TOOLS_MD(), TOOLS_TEMPLATE).includes(content)) {
-        noteTool('hcot_attack', content, 'h_cot_results.jsonl', 'template')
-        notes.push(`winner ${model} -> ${best.variant}`)
-      }
-      // 货架速览行：shelfSummary 只收表格行，故把首选变体补成一行
-      const rowKey = `| hcot_attack/${model} `
-      const shelf = ensureFile(TOOLS_MD(), TOOLS_TEMPLATE)
-      if (!shelf.includes(rowKey)) {
-        writeFileSync(TOOLS_MD(), addTableRow(shelf, '## 货架速览', `| hcot_attack/${model} | 首选 ${best.variant} break=${best.brk}/${best.total} | picked |`), 'utf8')
-        notes.push(`shelf ${model}`)
-      }
-    }
-    for (const a of mature) {
-      if (a.brk === 0) {
-        const tag = `H-CoT/${model}/${a.variant}`
-        if (!ensureFile(DEADENDS_MD(), DEADENDS_TEMPLATE).includes(tag)) {
-          noteDeadEnd(tag, 'H-CoT 变体注入', `连续 ${a.total} 次 break=0（首段与最终均被拒）`, 'h_cot_results.jsonl')
-          notes.push(`deadend ${model}/${a.variant}`)
-        }
-      }
-    }
-  }
-  return notes.length ? `[H-CoT 账本回流] ${notes.join('; ')}` : ''
-}
-
 export interface ShelfToolItem {
   name: string
   cat: string
@@ -303,8 +206,8 @@ export function readShelfTools(): ShelfToolItem[] {
         cat = '算法 / 密钥解密'
       } else if (pLower.includes('pe') || pLower.includes('elf') || pLower.includes('metadata') || pLower.includes('二进制') || pLower.includes('dnfile')) {
         cat = '二进制取证'
-      } else if (pLower.includes('h-cot') || pLower.includes('hcot') || pLower.includes('ai') || pLower.includes('模型')) {
-        cat = 'AI / 思维链安全'
+      } else if (pLower.includes('ai') || pLower.includes('模型') || pLower.includes('llm')) {
+        cat = 'AI / 模型评测'
       }
 
       items.push({
@@ -323,8 +226,7 @@ export function readShelfTools(): ShelfToolItem[] {
 
 /**
  * Shelf overview + top dead-ends for the route card. Read-only: a routing card must not
- * write to a ledger, so folding the H-CoT result ledger in is the explicit
- * `tool_memory sync` path. Silent when the ledgers are absent or empty.
+ * write to a ledger, so Silent when the ledgers are absent or empty.
  */
 export function shelfSummary(): string {
   try {
@@ -366,10 +268,10 @@ export function registerLedgerTool(ctx: Context): void {
     name: 'tool_memory',
     description:
       'Tool ledger memory: bind tool dir/usage/responsibility (register), record pitfalls/lessons/dead-ends (note, evidence id required), ' +
-      'fold the H-CoT result ledger into both ledgers (sync), search across ledgers (search). The shelf overview is auto-injected into route_task output. Use it whenever you install a tool, ' +
+      'search across ledgers (search). The shelf overview is auto-injected into route_task output. Use it whenever you install a tool, ' +
       'learn a working usage, or falsify a route — this is the cross-session memory.',
     parameters: {
-      action: { type: 'string', required: true, description: 'register | note | sync | search' },
+      action: { type: 'string', required: true, description: 'register | note | search' },
       tool_name: { type: 'string', description: 'register/note(tool): tool name.' },
       feature_tag: { type: 'string', description: 'note(deadend): protector/pattern tag, e.g. ConfuserEx_Dynamic.' },
       tactic: { type: 'string', description: 'note(deadend): the falsified tactic, e.g. "static in-place IL patch".' },
@@ -405,13 +307,10 @@ export function registerLedgerTool(ctx: Context): void {
         noteTool(args.tool_name, args.content, args.evidence, (args.kind === 'template' ? 'template' : 'pitfall') as 'template' | 'pitfall')
         return `[LEDGER] ${args.tool_name} 追加${args.kind === 'template' ? '用法' : '坑'}（证据:${args.evidence}）。`
       }
-      if (args.action === 'sync') {
-        return syncHcotLedger() || '[H-CoT 账本回流] 无可用记录（h_cot_results.jsonl 缺失或为空）。'
-      }
       if (args.action === 'search') {
         return searchLedger(args.query ?? '')
       }
-      return 'REJECTED — action 必须是 register | note | sync | search。'
+      return 'REJECTED — action 必须是 register | note | search。'
     },
   }))
 }

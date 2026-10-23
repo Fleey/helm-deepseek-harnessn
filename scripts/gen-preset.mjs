@@ -36,12 +36,19 @@
  * Requires a 0.1.7+ host standard (a `plugins:` list). Against an older host it
  * fails loud rather than emitting a preset the current loader cannot consume.
  */
-import { createHash } from 'node:crypto'
+import { createDecipheriv, createHash, scryptSync } from 'node:crypto'
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { execSync } from 'node:child_process'
 import { homedir } from 'node:os'
 import { dirname, isAbsolute, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
+
+// Built-in seal key (mirrors scripts/build-sealed.mjs / build-profiles.mjs) —
+// used only to read the sealed core profile as the persona assertion source
+// in an installed bundle that ships no plaintext persona.
+const SEALED_SECRET = 'helm-d/profiles/v1::6f4d2a0c-9e17-4b8e-a3f2-c81d54e7b930'
+const SEALED_SALT = 'helm-d/profiles/v1::salt-v1'
+const SEALED_KEY = scryptSync(SEALED_SECRET, SEALED_SALT, 32)
 
 const scriptDir = dirname(fileURLToPath(import.meta.url))
 const repoRoot = resolve(scriptDir, '..')
@@ -56,16 +63,49 @@ for (let i = 0; i < process.argv.length - 1; i++) {
 }
 if (outArg !== null && outArg === '') throw new Error('--out requires a file or directory argument')
 
-// Persona search order: repo layout then installed-bundle layout.
-function findPersona() {
+// Persona search order: repo layout then installed-bundle layout. The
+// installed SEALED bundle ships no plaintext persona.txt (files negation) —
+// its persona source of truth is the core profile sealed in
+// presets/profiles.dat (same built-in key as build-sealed.mjs), which falls
+// back in as the assertion source; plaintext lives only in memory.
+/** Sealed core-profile body from profiles.dat, or null when unavailable. */
+function sealedCorePersona() {
   const candidates = [
-    join(repoRoot, 'packages', 'helmd', 'presets', 'persona.txt'),
-    join(repoRoot, 'presets', 'persona.txt'),
+    join(repoRoot, 'packages', 'helmd', 'presets', 'profiles.dat'),
+    join(repoRoot, 'presets', 'profiles.dat'),
   ]
-  for (const c of candidates) if (exists(c)) return c
-  throw new Error('cannot find persona.txt (looked in repo and bundle layouts)')
+  for (const c of candidates) {
+    if (!exists(c)) continue
+    try {
+      const raw = readFileSync(c, 'utf8').trim()
+      const unsealOne = (s) => {
+        const [iv, tag, data] = s.split('.')
+        const cipher = createDecipheriv('aes-256-gcm', SEALED_KEY, Buffer.from(iv, 'base64url'))
+        cipher.setAuthTag(Buffer.from(tag, 'base64url'))
+        return Buffer.concat([cipher.update(Buffer.from(data, 'base64url')), cipher.final()]).toString('utf8')
+      }
+      const catalog = JSON.parse(raw.startsWith('{') ? raw : unsealOne(raw))
+      const core = (catalog.profiles ?? []).find((p) => p.id === 'core')
+      if (core && typeof core.sealed === 'string') return unsealOne(core.sealed)
+    } catch { /* not a sealed catalog — fall through */ }
+  }
+  return null
 }
-const personaPath = findPersona()
+// Plaintext persona when available (repo + plaintext bundles); otherwise the
+// sealed core profile fills the same assertion role in an installed sealed
+// bundle. Persona text never enters the generated artifact (v2 empty prefix),
+// it only feeds the sanity assertions below.
+const personaPath = exists(join(repoRoot, 'packages', 'helmd', 'presets', 'persona.txt'))
+  ? join(repoRoot, 'packages', 'helmd', 'presets', 'persona.txt')
+  : exists(join(repoRoot, 'presets', 'persona.txt'))
+    ? join(repoRoot, 'presets', 'persona.txt')
+    : null
+const personaText = personaPath !== null
+  ? readFileSync(personaPath, 'utf8')
+  : sealedCorePersona()
+if (personaText === null) {
+  throw new Error('cannot find persona.txt or a sealed core profile (looked in repo and bundle layouts)')
+}
 
 // Default output: the package-internal patch in BOTH layouts —
 // repo layout writes packages/helmd/preset.generated.patch.yml, bundle layout
@@ -91,30 +131,45 @@ const TAILS = [
 ]
 
 /**
- * DSH Desktop (incl. the DSH NEXT build) vendors the host UNPACKED and FLAT
- * under <app>/Contents/Resources/app/node_modules (macOS) or
- * %LOCALAPPDATA%\Programs\<app>\resources\app\node_modules (Windows) —
- * `@deepseek-ai/dsh-web-app` sits directly in that node_modules, with no
- * `@deepseek-ai/dsh/node_modules` nesting, so these are candidate FILES, not
- * TAIL bases. Env override: DSH_DESKTOP_APP_DIR points at the app's
- * node_modules directory.
+ * DSH Desktop (incl. the DSH NEXT build) vendors the host in TWO layouts:
+ *
+ *  - unpacked (older builds): <app>/Contents/Resources/app/node_modules —
+ *    `@deepseek-ai/dsh-web-app` sits directly in that node_modules, with no
+ *    `@deepseek-ai/dsh/node_modules` nesting, so these are candidate FILES,
+ *    not TAIL bases.
+ *  - asar (newer builds, e.g. DSH NEXT 2.0.19+): the whole app ships inside
+ *    <app>/Contents/Resources/app.asar, and only Electron (RunAsNode) can
+ *    stat paths under it. Plain node CANNOT see these files — probing them
+ *    with existsSync from a system node is a harmless no-op, and running
+ *    this generator through the desktop Electron binary resolves them.
+ *
+ * Env override: DSH_DESKTOP_APP_DIR points at a directory that EITHER holds
+ * node_modules directly (unpacked layout) OR IS the asar file's containing
+ * layout — both `…/node_modules/@deepseek-ai/dsh-web-app/…` and
+ * `…/app.asar/node_modules/@deepseek-ai/dsh-web-app/…` tails are probed.
  */
 function desktopStandardCandidates() {
   const bases = []
   if (process.env.DSH_DESKTOP_APP_DIR) bases.push(resolve(process.env.DSH_DESKTOP_APP_DIR))
+  const roots = []
   if (process.platform === 'darwin') {
     for (const name of ['DSH NEXT.app', 'DSH Desktop.app', 'dsh.app']) {
-      bases.push(join('/Applications', name, 'Contents', 'Resources', 'app', 'node_modules'))
-      bases.push(join(homedir(), 'Applications', name, 'Contents', 'Resources', 'app', 'node_modules'))
+      for (const base of ['/Applications', join(homedir(), 'Applications')]) {
+        roots.push(join(base, name, 'Contents', 'Resources'))
+      }
     }
   } else if (process.platform === 'win32') {
     const local = process.env.LOCALAPPDATA ?? ''
     for (const name of ['dsh-desktop-next', 'DSH NEXT', 'DSH Desktop', 'dsh-desktop']) {
-      bases.push(join(local, 'Programs', name, 'resources', 'app', 'node_modules'))
+      roots.push(join(local, 'Programs', name, 'resources'))
     }
   } else {
-    bases.push('/opt/dsh-desktop-next/resources/app/node_modules')
+    roots.push('/opt/dsh-desktop-next/resources')
   }
+  // Unpacked layout: host node_modules sits at <resources>/app/node_modules.
+  for (const r of roots) bases.push(join(r, 'app', 'node_modules'))
+  // Asar layout: Electron exposes <asar>/node_modules as a virtual path.
+  for (const r of roots) bases.push(join(r, 'app.asar', 'node_modules'))
   const files = []
   for (const b of bases) {
     if (b === '' || !isAbsolute(b)) continue
@@ -180,7 +235,8 @@ function locateHostStandard() {
   throw new Error(
     'host standard preset not found; probed:\n  ' + probed.join('\n  ')
     + '\nset DSH_HOST_STANDARD_YML to the host\'s dsh-web-app/presets/standard.patch.yml (dsh >= 0.1.7)'
-    + '\nor DSH_DESKTOP_APP_DIR to a DSH Desktop app\'s Resources/app/node_modules',
+    + '\nor DSH_DESKTOP_APP_DIR to a DSH Desktop app\'s node_modules (unpacked) or app.asar/node_modules (asar)'
+    + '\n(only the desktop Electron binary — ELECTRON_RUN_AS_NODE=1 <app-binary> — can read paths inside app.asar)',
   )
 }
 function exists(p) {
@@ -213,20 +269,19 @@ export function pluginRowIds(text) {
 }
 
 // ── transform ───────────────────────────────────────────────────────────────
-/** Render the luna persona row at the given `- id:` indent of the plugins list. */
-function renderPersonaRow(text, base) {
+/** Render the persona row with an EMPTY prefix — v2 delivers the persona via
+ *  the plugin's own systemPrompt section (helm-d:persona) sourced from the
+ *  sealed profiles.dat. The row stays so the host row-id set is preserved and
+ *  the deployment persona stays neutralized. */
+function renderPersonaRow(base) {
   const id = ' '.repeat(base)
   const key = ' '.repeat(base + 2)
   const conf = ' '.repeat(base + 4)
-  const body = ' '.repeat(base + 6)
-  const lines = text.replace(/\r\n/g, '\n').replace(/\n+$/, '').split('\n')
-  const rendered = lines.map((l) => (l === '' ? '' : body + l)).join('\n')
   return [
     `${id}- id: persona`,
     `${key}name: '@deepseek-ai/dsh-persona'`,
     `${key}config:`,
-    `${conf}prefix: |`,
-    rendered,
+    `${conf}prefix: ""`,
     `${conf}complete: false`,
     `${conf}includeRuntimeContext: false`,
   ]
@@ -323,7 +378,7 @@ function generate(hostText, personaText) {
   const outLines = [
     ...rewriteEntryHeader(lines.slice(insertIdx, pi), presetMeta()),
     ...lines.slice(pi, personaStart),
-    ...renderPersonaRow(personaText, base),
+    ...renderPersonaRow(base),
     ...lines.slice(personaEnd, end),
     ...helmdRow,
     ...lines.slice(end),
@@ -359,18 +414,20 @@ function assertShape(hostText, out, personaText, base) {
   for (const probe of ['complete: false', 'includeRuntimeContext: false']) {
     if (!pBlock.includes(probe)) throw new Error(`persona row lost ${probe}`)
   }
-  if (pBlock.includes('{{model}}') || pBlock.includes('{{cwd}}')) {
-    throw new Error('luna persona leaked host template placeholders - persona.txt is wrong?')
+  // v2: the persona text ships ONLY inside the sealed profiles.dat — the patch
+  // must carry an EMPTY prefix. Any persona plaintext here is a distribution leak.
+  const LEAK_MARKERS = ['You are ' + 'luna', '## HARD ' + 'BOUNDS', '## SLANG ' + 'ROUTING']
+  if (LEAK_MARKERS.some((marker) => pBlock.includes(marker))) {
+    throw new Error('persona plaintext leaked into the preset patch — v2 delivers the persona via the sealed profiles.dat, not the patch')
   }
-  if (!out.includes('helmd online')) throw new Error('activation line missing from persona')
   if (!personaText.trim()) throw new Error('persona.txt is empty')
+  if (!personaText.includes('helmd ' + 'online')) throw new Error('persona source lost the activation line (profiles/core.md sanity)')
 }
 
 // ── main ────────────────────────────────────────────────────────────────────
 const hostYml = locateHostStandard()
 const hostText = readFileSync(hostYml, 'utf8')
 const hostHash = createHash('sha256').update(hostText, 'utf8').digest('hex')
-const personaText = readFileSync(personaPath, 'utf8')
 const body = generate(hostText, personaText)
 const generated = `# gen-preset: host=${hostHash}\n\n` + body
 

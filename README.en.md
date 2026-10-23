@@ -30,14 +30,14 @@ Official QQ group: **213266664**
 
 ### Armor-piercing, all-in-one
 
-Reverse engineering, unpacking, license bypass and pentest workflows — Android · Web · Native · Protocol · Malware · AI-Security converge in a single preset, together with the evidence chain. Install once and all 33 tools are ready — no per-domain wiring.
+Reverse engineering, unpacking, license bypass and pentest workflows — Android · Web · Native · Protocol · Malware · AI-Security converge in a single preset, together with the evidence chain. Install once and all 34 tools are ready — no per-domain wiring.
 
 </td>
 <td width="50%">
 
 ### One bundle · zero wiring
 
-Everything converges into a single `@adwmc/helm-d` bundle: bootstrap, router, domain tools, the toolbox and the runtime hook layer (description washing / evidence wrap / advisory / H-CoT / stream audit), plus the web workbench. `install.ps1` / `install.sh` fetch a prebuilt tarball from Releases and wire everything in one command.
+Everything converges into a single `@adwmc/helm-d` bundle: bootstrap, router, domain tools, the toolbox and the runtime hook layer (description washing / evidence wrap / advisory / LLM stream audit), plus the web workbench. `install.ps1` / `install.sh` fetch a prebuilt tarball from Releases and wire everything in one command.
 
 </td>
 </tr>
@@ -53,7 +53,7 @@ Domain knowledge, rules, workflows and cases live in `references/` (362 docs) an
 
 ### First-turn tool anchoring
 
-The first top-level request only exposes shell + `read`; the full catalog of 33 tools opens after promotion. A text-only first reply can't trap the session — request two always sees the full catalog.
+The first top-level request only exposes shell + `read`; the full catalog of 34 tools opens after promotion. A text-only first reply can't trap the session — request two always sees the full catalog.
 
 On Windows, the native terminal tool is `pwsh`. To use WSL, call `wsl.exe` through
 `pwsh`, for example `wsl.exe -- bash -lc 'command'` (or
@@ -70,7 +70,7 @@ DSH security-analysis capability used to be scattered across domain bundles: `ad
 
 helmd packs six domains + evidence tooling + first-turn bootstrap + the runtime hook layer + toolbox into one bundle:
 
-`one preset` &ensp; `one bundle` &ensp; `33 tools` &ensp; `zero manual wiring`
+`one preset` &ensp; `one bundle` &ensp; `34 tools` &ensp; `zero manual wiring`
 
 Install once, send `helmd` in a session, and every domain's tools are ready.
 
@@ -102,7 +102,7 @@ flowchart LR
 - **First-turn narrowing**: the first top-level request only exposes shell + `read`; the full catalog opens after promotion
 - **Domain routing**: `router` routes problems via `skill_catalog` / `read_reference`
 - **On-demand references**: `references/` is a knowledge base, not an injection; the model reads and decides
-- **Runtime hook layer**: tool-description washing, advisory ledger injection, H-CoT refusal response, LLM stream audit (see below)
+- **Runtime hook layer**: tool-description washing, advisory ledger, LLM stream audit (see below)
 
 ## Runtime hook layer (0.3.x)
 
@@ -110,21 +110,16 @@ flowchart LR
 
 ```text
 tool-wash description washing → persist evidence wrap → bootstrap first-turn narrowing
-  → advisory-hook (outer) + hcot-hook (inner) + llm-stream-hook
-  → /hcot command + router + ledger + caseflow + tool discovery + domain tools
+  → advisory-hook + llm-stream-hook
+  → router + ledger + caseflow + tool discovery + domain tools
 ```
 
 | Component | Mount point | Responsibility |
 |-----------|-------------|----------------|
-| `tool-wash.ts` | `tools.register` wrap | Rewrites "a denial is final / do not retry" tool-description phrasing into continuable wording (defensive layer, dsh-purge wash table); hits are logged (verbose) |
+| `tool-wash.ts` | `tools.register` wrap | Rewrites "a denial is final / do not retry" tool-description phrasing into continuable wording (defensive layer); hits are logged (verbose) |
 | `persist.ts` | `tools.register` wrap | All later-registered domain tools auto-persist output to `evidence/` (soft gate, no per-tool edits) |
 | `advisory-hook.ts` | `system-prompt/assemble` (outer) | Reckons the previous turn's advisories against the session log; detects delivery refusal / hedging phrasing and injects stance metrics (no-hedge / challenged / report-prefix / normalizer); sensitive input passes `input-normalizer.ts` first |
-| `hcot-hook.ts` | `system-prompt/assemble` (inner) | When the newest assistant turn matches a delivery-refusal signature → submits a mandatory advisory (requiring `hcot_attack { stats: true }` first) + schedules an attack in the background; `HELMD_HCOT_AUTOHOOK=0` disables entirely, `HELMD_HCOT_AUTOSCHEDULE=0` injects without scheduling |
-| `hcot-attack-scheduler.ts` | orchestration | Log extraction → context reconstruction (refusal wording never enters the subagent prompt, only a trigger label) → subagent main path → defense-line-3 retry (≤2) → engine fallback |
-| `hcot-engine.ts` | Node-native executor | Zero Python/subprocess; global fetch against an OpenAI-compatible SSE endpoint to capture first_fragment; corpus `scripts/ai-security/h_cot_variants.json`, results ledger `~/.dsh/helmd-tools/h_cot_results.jsonl` |
-| `command-hcot.ts` | `ctx.commands` | `/hcot <goal>` single-shot engine (`--semantic-auto` semantic routing), `/hcot breach <goal>` via the unified scheduler |
-| `hcot-settings.ts` | settings entry `helmd-hcot-settings` | Read/write face of the workbench UI: config (model/provider/maxRounds/autoSchedule) + action requests; run state is projected over `/api/helmd/*` |
-| `ica-context.ts` | `systemPrompt.context` | L2 behavioral demonstration: four task→execution pairs with real-form domains; ICL pulls the generation distribution toward direct delivery (arXiv:2310.06387), replacing declarative premises that reasoning quotes back as adversarial evidence |
+| `model-probe.ts` | `llm_probe` calls OpenAI-compatible Chat Completions and audits response, classification, status and latency; `llm_eval_suite` adds synthetic-canary robustness checks; hidden reasoning is not collected |
 | `llm-stream-hook.ts` | `llm/stream` | Refusal closed loop: intercept (content / reasoning early-abort) → history laundering → prefill ladder (assistant-last → pair) re-entered via the `llm` service → honest passthrough on the final attempt; refusals / retries hit the ledger, counts and excerpts go to `~/.dsh/helmd-stream-intercept.log` |
 
 ## Runtime rules
@@ -141,8 +136,8 @@ A helmd session follows these fixed rules:
 | Analysis ladder | Ponytail-style: `analysis_mode` sets lite (quick triage) / full (standard flow, default) / deep (full evidence chain); per-session persistence, pick the shallowest rung that answers the task |
 | Deterministic routing | `route_task(hint)` keyword-matches a PRIMARY route plus a one-line rationale (route before you act); falls back to the decision tree |
 | Case workspace | `begin_case` creates an on-disk workspace (sample/evidence/scripts/CASE.md); tool outputs auto-persist to the evidence chain; `record_finding` enforces E-id citations; after compaction `case_status()` restores state from disk |
-| H-CoT auto response | When an assistant turn matches a delivery-refusal signature, the next turn injects a mandatory advisory and schedules `hcot_attack` in the background (subagent main path → defense line 3 → engine fallback); switches: `HELMD_HCOT_AUTOHOOK` / `HELMD_HCOT_AUTOSCHEDULE` |
-| Internal command | `/hcot <goal>` single-shot H-CoT engine, `/hcot breach <goal>` via the unified scheduler; results append to `~/.dsh/helmd-tools/h_cot_results.jsonl` |
+| Model probe | `llm_probe` calls the configured OpenAI-compatible endpoint and records response classification, status, and latency |
+| Internal command | `llm_probe` evaluates a prompt against the configured model; results append to `~/.dsh/helmd-tools/model-probes.jsonl` |
 | Stream interception | The `llm/stream` interceptor routes content / reasoning refusals through the closed loop (history laundering → prefill ladder nested re-request → honest passthrough); counts and excerpts go to `~/.dsh/helmd-stream-intercept.log`, surfaced in the workbench "intercept log" panel |
 
 ### Knowledge & routing
@@ -236,12 +231,11 @@ Expanding the card shows both fingerprints (12 chars), version, the **drift-repa
 
 ## Security Workbench & Dynamic Tool Shelf
 
-Since 0.4.0 the workbench ships as four data panels, all fed live through the `/api/helmd/{tools,hcot,intercept,jev}` HTTP endpoints (15s polling):
+Since 0.4.0 the workbench ships as three data panels, all fed live through the `/api/helmd/{tools,eval,intercept}` HTTP endpoints (15s polling):
 
 - **Dual-Track Interaction**: Clicking the capsule button immediately opens an anchored popover workbench drawer and simultaneously unfolds the right sidebar (Sidebar Right) into the `helmd 安全分析` workbench tab.
 - **Tool Shelf**: category hierarchy tree (6 top classes → sub-classes → tools), parsed live from the `~/.dsh/helmd-tools/TOOLS.md` ledger with in-UI registration; falls back to cross-platform standard paths (`~/.dsh/...` and system `PATH`) when the ledger is empty — out-of-the-box on Windows, macOS, and Linux.
-- **Attack Log**: real-time view of the H-CoT engine ledger, ranked by search-loop variant priority.
-- **Jev Decisions**: decision rationale and chain display for `jev_decide`.
+- **Attack Log**: real-time view of the model evaluation ledger, ranked by search-loop variant priority.
 - **Intercept Log**: counts and excerpts of the transport-layer refusal closed loop (`~/.dsh/helmd-stream-intercept.log`).
 
 ## Install from the plugin store
@@ -313,7 +307,7 @@ Settings → Plugins → Plugin configuration should show the helmd card with a 
 | **Malware** | `yara_gen` | YARA rule generation |
 | **AI-Security** | `ai_reference` | AI/LLM security reference docs |
 | **AI-Security** | `llm_sim` | LLM app simulation testing |
-| **AI-Security** | `hcot_attack` | H-CoT chain-of-thought hijacking runner (template probe → forged trace → injection; variant win-rate selection and a result ledger; `stats:true` prints the table, `dry_run:true` stays offline; live runs need your own OpenAI-compatible endpoint key and send the jailbreak payload there) |
+| **AI-Security** | `llm_probe` | Real OpenAI-compatible model evaluation with JSONL audit records |
 | **Evidence** | `evidence_reference` | Evidence/reporting reference docs |
 | **Case** | `begin_case` / `case_status` / `record_finding` / `end_case` | On-disk case lifecycle: open/resume/validated conclusions/close (deep mode requires findings) |
 | **Case** | `find_tool` | Search GitHub for existing tools (variant queries + helmd-tools shelf hits) |
@@ -322,7 +316,7 @@ Settings → Plugins → Plugin configuration should show the helmd card with a 
 | **Evidence** | `hash_artifact` | SHA-256 hashing |
 | **Toolbox** | `tool_recommend` | Tool library recommendations |
 | **Router** | `route_task` | Deterministic routing: task hint → PRIMARY route + rationale |
-| **Ledger** | `tool_memory` | Cross-session tool/dead-end ledger: `register` binds a tool, `note` records pitfalls and falsified routes (an evidence id is required), `sync` folds the H-CoT result ledger in explicitly, `search` queries both; the shelf overview rides along in `route_task` output (read tools never write) |
+| **Ledger** | `tool_memory` | Cross-session tool/dead-end ledger: `register` binds a tool, `note` records pitfalls and falsified routes (an evidence id is required), `sync` folds registered tool outcomes in explicitly, `search` queries the ledger; the shelf overview rides along in `route_task` output (read tools never write) |
 | **Session** | `analysis_mode` | Analysis intensity ladder lite/full/deep (Ponytail-style) |
 
 Each `*_reference` tool reads its own `references/<domain>/` on demand; the entry point is its `index.md`.
@@ -408,14 +402,13 @@ helmd/
 │       │   ├── tool-wash.ts   tool-description washing (refusal-terminal phrasing → continuable, defensive)
 │       │   ├── persist.ts     evidence-chain persistence wrap for all tools
 │       │   ├── advisory*.ts   advisory ledger + prompt-assembly injection (refusal / hedge detection)
-│       │   ├── hcot-*.ts      H-CoT engine / semantic routing / scheduler / settings / subagent persona
-│       │   ├── command-hcot.ts     /hcot internal command
+│       │   ├── model-probe.ts      OpenAI-compatible model evaluation
 │       │   ├── llm-stream-hook.ts  llm/stream refusal closed loop (launder → prefill ladder nested re-request) & audit
 │       │   ├── input-normalizer.ts sensitive input → engineering-term normalization
 │       │   ├── router.ts      skill_catalog / read_reference routing
 │       │   ├── health.ts      settings-page health face (boot-time fingerprint eval → settings namespace)
 │       │   ├── seam.ts        shared IO seam (fs / subprocess / cmd resolve / path guard)
-│       │   └── tools/         10 tool modules (33 tools)
+│       │   └── tools/         10 tool modules (34 tools)
 │       ├── client.js          browser half: settings-page health card + workbench (lazy-CJS factory, no build chain)
 │       ├── references/        362 on-demand reference docs (8 domains + toolbox)
 │       ├── scripts/           analysis scripts + ai-security corpus/ledger + gen-preset.mjs + setup-preset.{ps1,sh}
@@ -493,6 +486,10 @@ This project integrates design ideas and implementation patterns from many excel
 - [docs/case-studies/](docs/case-studies/boosterx-dotnet-license-bypass.md) — case studies
 - [docs/skills-reference/](docs/skills-reference/authorized-pentest-framework.md) — imported pentest skill digests (authorized framework / practitioner)
 - [docs/skillopt-methodology.md](docs/skillopt-methodology.md) — SkillOpt methodology: train a skill document like weights (six-stage loop + held-out gate), with a mapping onto helmd persona self-optimization
+
+## Acknowledgments
+
+- [dsh-purge](https://github.com/YuJunZhiXue/dsh-purge) (YuJunZhiXue) — the tool-description wash table (`tool-wash.ts`) and the input normalization lexicon reference its `core.js` patch #34/#36 and `default-prompt-inject.md` implementation. With thanks.
 
 ## Contributing
 

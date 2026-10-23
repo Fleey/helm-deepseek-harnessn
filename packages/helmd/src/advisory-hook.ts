@@ -1,7 +1,7 @@
 // Prompt-assembly side of the advisory ledger: reckon the previous turn's
 // advisories against the session log, then render whatever survives into one
 // section. Registered as the OUTER assembly listener so its render runs after
-// inner producers (e.g. the H-CoT refusal hook) have submitted this turn.
+// inner producers have submitted this turn.
 
 import type { Context } from '@deepseek-ai/cordis'
 import { hasPending, reckonAdvisories, renderAdvisories, submitAdvisory } from './advisory.js'

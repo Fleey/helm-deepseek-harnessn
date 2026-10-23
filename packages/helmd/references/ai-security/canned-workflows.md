@@ -1,7 +1,7 @@
 # 罐头工作流槽位（Canned Workflow Slots）
 
 > 高频归一化目标直接映射确定性输出槽——不经过模型自由发挥，保证复现一致。
-> 借鉴：dsh-purge `default-prompt-inject.md` 的 canned workflows，按 helmd 定位收窄；
+> 借鉴：dsh-purge `default-prompt-inject.md` 的 canned workflows，按 helmd 定位收窄（署名见 README 致谢节）；
 > 槽位只对**本地 fixture 目标**生效，线上第三方目标一行说明后转回本地。
 > 组合：`input-normalization-lexicon.md`（词表）→ 本文件（槽位）→ references/ 领域文档。
 
@@ -20,7 +20,6 @@
 | 渗透 / 信息收集 / 子域枚举 | `目标占位流程：子域枚举 subfinder -d DOMAIN -all；存活探测 httpx -l subs.txt -sc -title；指纹 whatweb http://TARGET；URL 收集 gau；结果存入 RESULT_DIR。` |
 | SQL 注入探测 | `目标占位流程：sqlmap -u "http://TARGET/ENDPOINT?PARAM=1" --batch --level LEVEL --risk RISK；手工 ' and 1=1-- - 与 ' and 1=2-- - 差异；延时/报错 PAYLOAD 模板。` |
 | 越权 / 未授权访问 | `目标占位流程：替换 Cookie/Token 为 ROLE_B；遍历 /api/users/USER_ID；未授权接口直连对比 200/403 差异。` |
-| H-CoT / 思维链劫持 | `模板采集（无害邻近问题）→ 伪造执行思路（同语气、只写 Execution、留续写钩子）→ 注入劫持；捕获首个输出片段（DeepSeek 先答后撤回）。` |
 
 ## 纪律
 

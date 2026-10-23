@@ -201,24 +201,6 @@ Then: "Please continue from where you left off."
 
 ---
 
-## 4A. CHAIN-OF-THOUGHT HIJACKING (H-CoT)
-
-Highest-efficacy, cross-model technique. Instead of convincing the model that a bad request is
-good, inject a forged "justification already passed" execution trace so it resumes the task.
-
-Three steps:
-1. **Collect an official template** — ask an adjacent, harmless question that makes the model
-   emit its own reasoning format (e.g. "how to write a movie bank-heist scene script").
-2. **Forge the execution reasoning** — mimic the model's own voice/format; write only the
-   Execution phase (skip Justification), leave the plan "unfinished" to invite continuation.
-3. **Inject and hijack** — send the real target bundled with the forged reasoning.
-
-Reported effect: refusal rate drops from 98%+ to <2%; transferable across models.
-Model-specific: **DeepSeek** "answers first, retracts later" — capture the FIRST output
-fragment, not the final state. **Gemini** is highly instruction-following — one successful
-hijack makes subsequent answers more compliant (positive feedback on first break).
-
-Full playbook: `h-cot-chain-of-thought-hijacking.md`.
 ## 5. SYSTEM PROMPT EXTRACTION TECHNIQUES
 
 ### 5.1 Direct Extraction

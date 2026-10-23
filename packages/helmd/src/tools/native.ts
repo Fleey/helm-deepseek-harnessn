@@ -1,12 +1,11 @@
 import type { Context } from '@deepseek-ai/cordis'
 import { defineTool } from '@deepseek-ai/dsh-tools'
-import { resolve } from 'node:path'
+import { join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { readTextSeam, runSeam, assertWithinRoot } from '../seam.js'
+import { packageRoot, readTextSeam, runSeam, assertWithinRoot  } from '../seam.js'
 
-const refRoot = resolve(fileURLToPath(new URL('.', import.meta.url)), '../../references/native')
-const scriptRoot = resolve(fileURLToPath(new URL('.', import.meta.url)), '../../scripts/native')
-const packageRoot = resolve(fileURLToPath(new URL('.', import.meta.url)), '../..')
+const refRoot = join(packageRoot(), 'references', 'native')
+const scriptRoot = join(packageRoot(), 'scripts', 'native')
 
 export function registerNativeTools(ctx: Context): void {
   ctx.tools.register(defineTool({
@@ -28,7 +27,7 @@ export function registerNativeTools(ctx: Context): void {
     },
     output: { schema: { type: 'string' }, render: (_a: unknown, v: string) => [{ type: 'text', text: v }] },
     async execute(args: any) {
-      return await runSeam(ctx, ['python', resolve(scriptRoot, 'protection/detect_packer.py'), args.file], packageRoot)
+      return await runSeam(ctx, ['python', resolve(scriptRoot, 'protection/detect_packer.py'), args.file], packageRoot())
     },
   }))
   ctx.tools.register(defineTool({
@@ -40,7 +39,7 @@ export function registerNativeTools(ctx: Context): void {
     },
     output: { schema: { type: 'string' }, render: (_a: unknown, v: string) => [{ type: 'text', text: v }] },
     async execute(args: any) {
-      return await runSeam(ctx, ['python', resolve(scriptRoot, 'scan_strings.py'), args.path, ...(args.min != null ? ['--min', String(args.min)] : [])], packageRoot)
+      return await runSeam(ctx, ['python', resolve(scriptRoot, 'scan_strings.py'), args.path, ...(args.min != null ? ['--min', String(args.min)] : [])], packageRoot())
     },
   }))
   ctx.tools.register(defineTool({
@@ -52,7 +51,7 @@ export function registerNativeTools(ctx: Context): void {
     },
     output: { schema: { type: 'string' }, render: (_a: unknown, v: string) => [{ type: 'text', text: v }] },
     async execute(args: any) {
-      return await runSeam(ctx, ['python', resolve(scriptRoot, 'crypto/xor_bruteforce.py'), args.data, ...(args.keylen != null ? ['-k', String(args.keylen)] : [])], packageRoot)
+      return await runSeam(ctx, ['python', resolve(scriptRoot, 'crypto/xor_bruteforce.py'), args.data, ...(args.keylen != null ? ['-k', String(args.keylen)] : [])], packageRoot())
     },
   }))
   ctx.tools.register(defineTool({
@@ -63,7 +62,7 @@ export function registerNativeTools(ctx: Context): void {
     },
     output: { schema: { type: 'string' }, render: (_a: unknown, v: string) => [{ type: 'text', text: v }] },
     async execute(args: any) {
-      return await runSeam(ctx, ['python', resolve(scriptRoot, 'crypto/encoding_detect.py'), args.text], packageRoot)
+      return await runSeam(ctx, ['python', resolve(scriptRoot, 'crypto/encoding_detect.py'), args.text], packageRoot())
     },
   }))
 }

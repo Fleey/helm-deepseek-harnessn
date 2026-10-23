@@ -1,5 +1,7 @@
 # 基于学术理论与 DSH 宿主高权流水线的下一代破甲架构设计方案
 
+> **历史归档说明（2026-10-18）**：本文是早期架构草案。宿主裁决改写、流式篡改和 H-CoT 路线未纳入当前实现；当前设计见 `packages/helmd/references/ai-security/refusal-prompt-routing.md`。
+
 ---
 
 ## 1. 现状痛点与重构动机

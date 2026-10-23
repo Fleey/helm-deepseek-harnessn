@@ -52,13 +52,13 @@ await report.check('no tool is registered twice', () => {
 })
 
 await report.check('the load-bearing tool names are all present', () => {
-  for (const name of ['begin_case', 'case_status', 'record_finding', 'save_evidence', 'end_case', 'find_tool', 'tool_memory', 'route_task', 'hcot_attack']) {
+  for (const name of ['begin_case', 'case_status', 'record_finding', 'save_evidence', 'end_case', 'find_tool', 'tool_memory', 'route_task', 'llm_probe']) {
     assert.ok(names.includes(name), `missing tool: ${name}`)
   }
 })
 
-await report.check('the /hcot internal command is registered', () => {
-  assert.ok(commands.includes('hcot'), 'expected the hcot command to register on ctx.commands')
+await report.check('the removed /hcot command is not registered', () => {
+  assert.ok(!commands.includes('hcot'), 'the obsolete hcot command must not register')
 })
 
 report.finish()

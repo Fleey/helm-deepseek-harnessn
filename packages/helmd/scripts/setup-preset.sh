@@ -20,6 +20,9 @@ GEN_SCRIPT="$SCRIPT_DIR/gen-preset.mjs"
 # Node runtime resolution: prefer the system node; on a desktop-only install
 # (DSH NEXT / DSH Desktop ship no system node requirement) fall back to the
 # app's Electron binary in RunAsNode mode — the desktop build enables the fuse.
+# The desktop Electron also sees the asar-vendored host (newer builds, e.g.
+# DSH NEXT 2.0.19+): even when system node exists, if gen-preset fails to find
+# the host under node, retry once through the Electron binary.
 NODE_BIN=""
 DSH_ELECTRON=""
 if command -v node >/dev/null 2>&1; then
@@ -37,9 +40,28 @@ else
     exit 1
   fi
   echo "  using desktop Electron as node: $DSH_ELECTRON"
-  # DSH_DESKTOP_APP_DIR steers gen-preset's host discovery at the app's own
-  # unpacked node_modules when npm globals / PATH hold no dsh install.
-  export DSH_DESKTOP_APP_DIR="${DSH_DESKTOP_APP_DIR:-$(dirname "$(dirname "$DSH_ELECTRON")")/Resources/app/node_modules}"
+fi
+
+# Probe a desktop Electron for later fallback (also when system node exists).
+[ -z "$DSH_ELECTRON" ] && for cand in \
+  "/Applications/DSH NEXT.app/Contents/MacOS/DSH NEXT" \
+  "/Applications/DSH Desktop.app/Contents/MacOS/DSH Desktop" \
+  "$HOME/Applications/DSH NEXT.app/Contents/MacOS/DSH NEXT"; do
+  if [ -x "$cand" ]; then DSH_ELECTRON="$cand"; break; fi
+done
+# DSH_DESKTOP_APP_DIR steers gen-preset's host discovery at the app's vendored
+# node_modules when npm globals / PATH hold no dsh install. Newer desktop
+# builds ship the host inside app.asar — only the Electron binary can read
+# those paths, so the env is a hint, not a hard requirement.
+if [ -n "$DSH_ELECTRON" ]; then
+  RESOURCES_DIR="$(dirname "$(dirname "$DSH_ELECTRON")")/Resources"
+  if [ -z "${DSH_DESKTOP_APP_DIR:-}" ]; then
+    if [ -f "$RESOURCES_DIR/app.asar" ]; then
+      export DSH_DESKTOP_APP_DIR="$RESOURCES_DIR/app.asar/node_modules"
+    else
+      export DSH_DESKTOP_APP_DIR="$RESOURCES_DIR/app/node_modules"
+    fi
+  fi
 fi
 [ -f "$GEN_SCRIPT" ] || { echo "generator not found at $GEN_SCRIPT (run from inside the installed package)"; exit 1; }
 
@@ -48,13 +70,21 @@ fi
 # gen-preset asserts the artifact's shape and writes nothing when the host
 # predates 0.1.7 or the assertion fails, so a non-zero exit leaves the current
 # patch untouched.
-if [ -n "$DSH_ELECTRON" ]; then
-  if ! ELECTRON_RUN_AS_NODE=1 "$DSH_ELECTRON" "$GEN_SCRIPT" --out "$TARGET"; then
+if [ -n "$NODE_BIN" ]; then
+  if "$NODE_BIN" "$GEN_SCRIPT" --out "$TARGET"; then
+    :
+  elif [ -n "$DSH_ELECTRON" ]; then
+    echo "  (system node found no host standard; retrying through the desktop Electron — asar-vendored host)"
+    if ! ELECTRON_RUN_AS_NODE=1 "$DSH_ELECTRON" "$GEN_SCRIPT" --out "$TARGET"; then
+      echo "gen-preset failed; $TARGET was left as-is"
+      exit 1
+    fi
+  else
     echo "gen-preset failed; $TARGET was left as-is"
     exit 1
   fi
 else
-  if ! "$NODE_BIN" "$GEN_SCRIPT" --out "$TARGET"; then
+  if ! ELECTRON_RUN_AS_NODE=1 "$DSH_ELECTRON" "$GEN_SCRIPT" --out "$TARGET"; then
     echo "gen-preset failed; $TARGET was left as-is"
     exit 1
   fi

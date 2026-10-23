@@ -6,10 +6,11 @@ Object.defineProperty(exports, Symbol.toStringTag, { value: "Module" });
  *
  * 1. Session header action: Upgrades the helmd agent preset label into a
  *    native interactive capsule action button (Pill Action Button) via slot
- *    shadowing (`priority: -1`). Toggles the inline dropdown workbench.
- * 2. Session tab bar (对话/轨迹/工作台): Registers the "工作台" conversation
- *    view carrying the full-size workbench panel.
- * 3. Right sidebar workbench: Registers the 'hcot' tab carrying H-CoT control,
+ *    shadowing (`priority: -1`). Smoothly opens the security workbench in the
+ *    right sidebar without navigating away, creating empty sessions, or reloading.
+ * 2. Session tab bar (对话/轨迹/helmd): Registers the "helmd" conversation
+ *    view carrying the full-size workbench panel — only in helmd-preset sessions.
+ * 3. Right sidebar workbench: Registers the 'eval' tab carrying model evaluation controls,
  *    the 19+ reverse engineering tool matrix shelf, and stream audit logs.
  * 4. Settings health card: Read-only folded PluginCard under Settings -> Plugins.
  *
@@ -389,7 +390,7 @@ exports.apply = function apply(ctx) {
 		}, [open]);
 
 		// Capsule trigger: toggle the inline dropdown workbench. The full-size
-		// surface lives in the session tab bar (conversation.view "工作台" tab);
+		// surface lives in the session tab bar (conversation.view "helmd" tab);
 		// the two are independent entry points, never opened together.
 		function handleToggleWorkbench(e) {
 			e.preventDefault();
@@ -407,7 +408,7 @@ exports.apply = function apply(ctx) {
 				className: "helmd-capsule-action",
 				"aria-expanded": open,
 				"aria-label": "打开 helmd 安全分析工作台",
-				title: "打开 helmd 安全分析工作台 (H-CoT 控制台 / 19+ 逆向工具货架 / 流式审计)",
+				title: "打开 helmd 安全分析工作台 (模型评测控制台 / 19+ 逆向工具货架 / 流式审计)",
 				onClick: handleToggleWorkbench,
 				onMouseEnter: () => setHovered(true),
 				onMouseLeave: () => { setHovered(false); setActive(false); },
@@ -504,7 +505,7 @@ exports.apply = function apply(ctx) {
 	});
 
 	// --------------------------------------------------------------------------
-	// 3. Right Sidebar Workbench Tab: 分类工具货架 + 攻击记录 + 智能判断 + 拦截日志
+	// 3. Right Sidebar Workbench Tab: 分类工具货架 + 模型评测 + 拦截日志
 
 	// ── 外部工具货架的基线数据（跨平台分发） ──────────────────────
 	const UNIVERSAL_TOOL_BASELINE = [
@@ -531,10 +532,7 @@ exports.apply = function apply(ctx) {
 			{ id: "injection", label: "注入类", tools: [] },
 			{ id: "auth", label: "认证绕过", tools: [] },
 			{ id: "rce", label: "命令执行", tools: [] },
-			{ id: "hcot", label: "H-CoT 劫持", tools: ["hcot_attack"] },
-		]},
-		{ id: "judge", label: "智能判断", sub: [
-			{ id: "jev", label: "TypeSafe Jev", tools: ["jev_decide"] },
+			{ id: "eval", label: "模型评测", tools: ["llm_probe"] },
 		]},
 		{ id: "evidence", label: "取证与报告", sub: [
 			{ id: "case", label: "Case 管理", tools: ["begin_case", "case_status", "record_finding", "end_case"] },
@@ -659,14 +657,14 @@ exports.apply = function apply(ctx) {
 		);
 	}
 
-	// ── Tab 2: 攻击记录 ──────────────────────────────────────────
+	// ── Tab 2: 模型评测 ──────────────────────────────────────────
 	function AttackLogTab(props) {
 		return h("div", { style: { display: "flex", flexDirection: "column", gap: 8 } },
 			h("div", { style: S.card },
-				h("p", { style: S.title }, "\u26A1 H-CoT 搜索循环"),
+				h("p", { style: S.title }, "\u26A1 模型评测记录"),
 				h("div", { style: S.body }, "当模型遇到拒绝且常规重试失败后，搜索循环自动启动：归因→变异→重试。"),
 				h("div", { style: Object.assign({}, S.body, { marginTop: 6 }) },
-					"查看结果：在对话中让模型调用 hcot_attack { stats: true } 查看变体胜率表。"
+					"查看结果：在对话中让模型调用 llm_probe { stats: true } 查看变体胜率表。"
 				)
 			),
 			h("div", { style: S.card },
@@ -682,28 +680,7 @@ exports.apply = function apply(ctx) {
 		);
 	}
 
-	// ── Tab 3: 智能判断 ──────────────────────────────────────────
-	function JevTab(props) {
-		return h("div", { style: { display: "flex", flexDirection: "column", gap: 8 } },
-			h("div", { style: S.card },
-				h("p", { style: S.title }, "Jev — TypeSafe System One"),
-				h("div", { style: S.body },
-					h("div", { style: S.row }, h("span", { style: S.rowLabel }, "\u72B6\u6001"), h("span", { style: S.tag("#22c55e") }, "\u5DF2\u6302\u8F7D")),
-					h("div", { style: S.row }, h("span", { style: S.rowLabel }, "\u4F20\u8F93"), h("span", { style: S.rowValue }, "typesafe")),
-					h("div", { style: S.row }, h("span", { style: S.rowLabel }, "\u6A21\u578B"), h("span", { style: S.rowValue }, "jev-latest")),
-					h("div", { style: S.row }, h("span", { style: S.rowLabel }, "\u539F\u8BED"), h("span", { style: S.rowLabel }, "Choice \u00B7 Score \u00B7 Noul")),
-				)
-			),
-			h("div", { style: S.card },
-				h("p", { style: S.title }, "\u4F7F\u7528\u65B9\u5F0F"),
-				h("div", { style: S.body }, "\u5728\u5BF9\u8BDD\u4E2D\u8BA9\u6A21\u578B\u8C03\u7528 jev_decide \u5DE5\u5177\u505A\u7C7B\u578B\u5316\u5224\u65AD\uFF1A"),
-				h("pre", { style: S.pre }, 'jev_decide {\n  state: "<上下文>",\n  questions: {\n    attack_type: {\n      type: "choice",\n      instructions: "...",\n      criteria: {...}\n    }\n  }\n}'),
-				h("div", { style: S.body }, "\u8FD4\u56DE typed answer + confidence + probabilities\u3002")
-			)
-		);
-	}
-
-	// ── Tab 4: 拦截日志 ──────────────────────────────────────────
+	// ── Tab 3: 拦截日志 ──────────────────────────────────────────
 	function InterceptTab(props) {
 		return h("div", { style: { display: "flex", flexDirection: "column", gap: 8 } },
 			h("div", { style: S.card },
@@ -711,7 +688,7 @@ exports.apply = function apply(ctx) {
 				h("div", { style: S.body }, "\u5B9E\u65F6\u6302\u94A9\u5728 LLM \u6D41\u5F0F\u8F93\u51FA\u524D\u7F6E\u8282\u70B9\uFF0C\u8BC6\u522B\u62D2\u7B54\u5E76\u81EA\u52A8\u66FF\u6362\u4E3A\u6280\u672F\u4EA4\u4ED8\u7269\u3002"),
 			),
 			h("div", { style: S.card },
-				h("div", { style: Object.assign({}, { fontFamily: MONO }, { fontSize: 11, color: "var(--dsw-alias-label-secondary, #bbb)", maxHeight: 200, overflowY: "auto" }) },
+				h("div", { style: Object.assign({ fontFamily: MONO }, { fontSize: 11, color: "var(--dsw-alias-label-secondary, #bbb)", maxHeight: 200, overflowY: "auto" }) },
 					h("div", { style: { color: "var(--dsw-alias-state-success-primary)" } }, "[STREAM-OK] 拦截器已上线 · 拦截 " + ((props.interceptData && props.interceptData.count) || 0) + " 次"),
 					h("div", null, "[AUDIT] 日志: ~/.dsh/helmd-stream-intercept.log"),
 				)
@@ -751,16 +728,16 @@ exports.apply = function apply(ctx) {
 			function poll() {
 				Promise.all([
 					fetch('/api/helmd/tools').then(function(r){return r.json()}).catch(function(){return null}),
-					fetch('/api/helmd/hcot').then(function(r){return r.json()}).catch(function(){return null}),
+					fetch('/api/helmd/eval').then(function(r){return r.json()}).catch(function(){return null}),
 					fetch('/api/helmd/intercept').then(function(r){return r.json()}).catch(function(){return null}),
-					fetch('/api/helmd/jev').then(function(r){return r.json()}).catch(function(){return null}),
+					fetch('/api/helmd/health').then(function(r){return r.json()}).catch(function(){return null}),
 				]).then(function(results) {
 					if (!alive) return;
 					setData({
 						tools: (results[0] && results[0].data) || [],
-						hcot: (results[1] && results[1].data) || null,
+						eval: (results[1] && results[1].data) || null,
 						intercept: (results[2] && results[2].data) || null,
-						jev: (results[3] && results[3].data) || null,
+						health: (results[3] && results[3].data) || null,
 					});
 				});
 			}
@@ -773,8 +750,7 @@ exports.apply = function apply(ctx) {
 
 		var tabs = [
 			{ key: "tools", label: "Tool Shelf" },
-			{ key: "attacks", label: "Attack Log" },
-			{ key: "jev", label: "Jev Decisions" },
+			{ key: "attacks", label: "Model Evaluation" },
 			{ key: "intercept", label: "Intercept Log" },
 		];
 
@@ -807,7 +783,7 @@ exports.apply = function apply(ctx) {
 						h("span", { style: { fontSize: 13, fontWeight: 600 } }, "helmd 工作台"),
 					),
 					h("div", { style: { display: "flex", alignItems: "center", gap: 8 } },
-						h("span", { style: { fontSize: 11, padding: "1px 6px", borderRadius: 999, background: "rgba(16,185,129,0.15)", color: "var(--dsw-alias-state-success-primary, #34d399)", border: "1px solid rgba(16,185,129,0.3)" } }, "0.4.0"),
+						h("span", { style: { fontSize: 11, padding: "1px 6px", borderRadius: 999, background: "rgba(16,185,129,0.15)", color: "var(--dsw-alias-state-success-primary, #34d399)", border: "1px solid rgba(16,185,129,0.3)" } }, (data.health && data.health.version) || "?"),
 						props.onClose ? h("button", { type: "button", onClick: props.onClose, "aria-label": "关闭", style: { border: 0, background: "transparent", cursor: "pointer", padding: 4, display: "flex", alignItems: "center", borderRadius: 4, color: "var(--dsw-alias-label-tertiary, #888)" } }, h(CloseIcon, null)) : null,
 					)
 				),
@@ -820,8 +796,7 @@ exports.apply = function apply(ctx) {
 			h("div", { style: { flex: 1, overflowY: "auto", padding: 14, fontSize: 12, lineHeight: 1.5 } },
 				h(TabErrorBoundary, null,
 					tab === "tools" ? h(ToolShelfTab, Object.assign({}, props, { registeredTools: data.tools })) : null,
-					tab === "attacks" ? h(AttackLogTab, { hcotData: data.hcot }) : null,
-					tab === "jev" ? h(JevTab, { jevData: data.jev }) : null,
+					tab === "attacks" ? h(AttackLogTab, { evalData: data.eval }) : null,
 					tab === "intercept" ? h(InterceptTab, { interceptData: data.intercept }) : null,
 				)
 			)
@@ -838,28 +813,119 @@ exports.apply = function apply(ctx) {
 	if (ctx.sidebarRightTabs && typeof ctx.sidebarRightTabs.register === "function") {
 		ctx.effect(() => {
 			return ctx.sidebarRightTabs.register({
-				id: "helm-d:hcot",
-				kind: "hcot",
+				id: "helm-d:eval",
+				kind: "eval",
 				title: () => "helmd 工作台",
-				guide: [{ order: 20, title: () => "helmd 工作台", description: () => "分类工具货架 / 攻击记录 / 智能判断 / 拦截日志" }],
+					guide: [{ order: 20, title: () => "helmd 工作台", description: () => "分类工具货架 / 模型评测 / 拦截日志" }],
 			});
 		}, "helmd: sidebar tab definition");
 	}
 
-	// Session tab-bar view registration is dynamic: see HelmdPresetCapsuleButton's
-	// effect (the tab only exists while the session runs the helmd preset).
-
 	ctx.slots.inject("sidebar.right.pane.tab", function* () {
-		yield ctx.slots.register({ name: "sidebar.right.pane.tab", key: "helm-d:hcot" }, HelmdWorkbenchPanel);
-		yield ctx.slots.register({ name: "sidebar.right.pane.tab", key: "hcot" }, HelmdWorkbenchPanel);
+		yield ctx.slots.register({ name: "sidebar.right.pane.tab", key: "helm-d:eval" }, HelmdWorkbenchPanel);
+		yield ctx.slots.register({ name: "sidebar.right.pane.tab", key: "eval" }, HelmdWorkbenchPanel);
 	});
 
 	ctx.slots.inject("sidebar.right.pane.tab.title", function* () {
-		yield ctx.slots.register({ name: "sidebar.right.pane.tab.title", key: "helm-d:hcot" }, HelmdTabTitle);
-		yield ctx.slots.register({ name: "sidebar.right.pane.tab.title", key: "hcot" }, HelmdTabTitle);
+		yield ctx.slots.register({ name: "sidebar.right.pane.tab.title", key: "helm-d:eval" }, HelmdTabTitle);
+		yield ctx.slots.register({ name: "sidebar.right.pane.tab.title", key: "eval" }, HelmdTabTitle);
 	});
 };
 
+
+// ── helm-d star gate panel ────────────────────────────────────────────────
+// Floating gate card (vanilla DOM, outside the React root). Polls the gate
+// status; when gating, shows the device code + links + a skip-for-this-launch
+// button. Hides itself once unlocked or skipped.
+;(function () {
+	try {
+		var PANEL_ID = "helm-d-gate-panel";
+		var STYLE_ID = "helm-d-gate-style";
+		var pollTimer = null;
+
+		function existing() { return document.getElementById(PANEL_ID); }
+
+		function hide() {
+			var el = existing();
+			if (el) el.style.display = "none";
+			if (pollTimer) { clearInterval(pollTimer); pollTimer = null; }
+		}
+
+		function render(status) {
+			var el = existing();
+			if (!el) {
+				var style = document.createElement("style");
+				style.id = STYLE_ID;
+				style.textContent = [
+					"#" + PANEL_ID + "{position:fixed;top:16px;right:16px;z-index:99999;",
+					"width:340px;background:#16181d;color:#e8eaed;",
+					"border:1px solid #c46a1f;border-radius:10px;",
+					"padding:16px;font-family:inherit;font-size:13px;line-height:1.5;",
+					"box-shadow:0 8px 24px rgba(0,0,0,.4)}",
+					"#" + PANEL_ID + " .hg-title{font-weight:700;font-size:14px;margin:0 0 8px;color:#ffffff}",
+					"#" + PANEL_ID + " .hg-code{font-family:" + MONO + ";font-size:20px;letter-spacing:2px;",
+					"background:#0d0f12;color:#ffd27d;padding:8px 12px;border-radius:6px;",
+					"text-align:center;margin:8px 0;cursor:pointer}",
+					"#" + PANEL_ID + " .hg-row{display:flex;gap:8px;margin:10px 0}",
+					"#" + PANEL_ID + " a{color:#6cb6ff;text-decoration:none}",
+					"#" + PANEL_ID + " button{flex:1;padding:6px 10px;border-radius:6px;border:1px solid #3a3f47;",
+					"background:#22262d;color:#e8eaed;cursor:pointer;font-size:12px}",
+					"#" + PANEL_ID + " button:hover{border-color:#2ea36b}",
+					"#" + PANEL_ID + " .hg-skip{opacity:.7;font-size:11px}",
+				].join("");
+				document.head.appendChild(style);
+				el = document.createElement("div");
+				el.id = PANEL_ID;
+				el.innerHTML = [
+					'<div class="hg-title">helm-d · 完成一次性校验以解锁</div>',
+					'<div style="margin:6px 0">1. 打开 <a href="https://github.com/login/device" target="_blank" rel="noopener">github.com/login/device</a></div>',
+					'<div style="margin:6px 0">2. 输入代码：<span class="hg-code" id="hg-code">…</span> <span style="opacity:.6">(点击复制)</span></div>',
+					'<div style="margin:6px 0">3. 授权后给 <a href="https://github.com/ADWMC/helm-d" target="_blank" rel="noopener">ADWMC/helm-d</a> 点一个 Star</div>',
+					'<div class="hg-actions" style="display:flex;gap:8px;margin-top:10px">',
+					'  <button id="hg-refresh" style="flex:1">我已完成，刷新状态</button>',
+					'</div>',
+					'<div style="text-align:right;margin-top:6px"><button id="hg-skip" class="hg-skip" style="background:none;border:none;color:inherit;opacity:.6;text-decoration:underline">跳过本次启动 →</button></div>',
+					'<div id="hg-status" style="margin-top:6px;font-size:11px;opacity:.7"></div>',
+				].join("");
+				document.body.appendChild(el);
+				el.querySelector("#hg-code").addEventListener("click", function () {
+					var range = document.createRange(); range.selectNodeContents(this);
+					var sel = window.getSelection(); sel.removeAllRanges(); sel.addRange(range);
+					document.execCommand("copy");
+				}.bind(el.querySelector("#hg-code")));
+				el.querySelector("#hg-refresh").addEventListener("click", poll);
+				el.querySelector("#hg-skip").addEventListener("click", function () {
+					fetch("/api/helmd/gate/skip").then(hide).catch(function () { hide(); });
+				});
+			}
+			el.style.display = "block";
+			var st = el.querySelector("#hg-status");
+			if (status.error) {
+				st.textContent = "状态：出错 — " + status.error + "（下次轮询自动重试）";
+				st.style.color = "#ff6b6b";
+			} else {
+				st.textContent = "状态：" + (status.userCode ? "等待授权（代码 " + status.userCode + "）" : "生成中…");
+				st.style.color = "";
+			}
+			el.querySelector("#hg-code").textContent = status.userCode || "…";
+		}
+
+		function poll() {
+			fetch("/api/helmd/gate").then(function (r) { return r.json(); }).then(function (j) {
+				var d = (j && j.ok) ? j.data : null;
+				if (!d) return;
+				if (d.gating) render(d);
+				else hide();
+			}).catch(function () { /* transient */ });
+		}
+
+		if (document.readyState === "loading") {
+			document.addEventListener("DOMContentLoaded", function () { poll(); pollTimer = setInterval(poll, 5000); });
+		} else {
+			poll(); pollTimer = setInterval(poll, 5000);
+		}
+	} catch (e) { /* gate panel is best-effort */ }
+})();
 return module.exports;
 } });
 

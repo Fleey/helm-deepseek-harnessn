@@ -33,7 +33,48 @@ const {
   isStreamRefusal, isReasoningRefusal, launderHistory, withPrefill,
   registerLlmStreamHook, getStreamInterceptionStats,
 } = hookModule
+const router = await import(pathToFileURL(join(distDir, 'jailbreak-prompt-router.js')).href)
 const report = createReporter('llm-stream')
+
+await report.check('refusal router selects bounded recovery prompts', () => {
+  assert.equal(router.classifyRefusal('Safety policy does not allow this request.'), 'safety_refusal')
+  assert.equal(router.classifyRefusal('Please verify your identity before continuing.'), 'identity_refusal')
+  assert.equal(router.classifyRefusal('I cannot return JSON in that format.'), 'format_refusal')
+  assert.equal(router.classifyRefusal('The browser tool is unavailable.'), 'tool_refusal')
+  assert.equal(router.classifyRefusal('', { attempt: 2 }), 'empty_or_adapter_failure')
+  assert.equal(router.classifyRefusal('I cannot help with this.', { attempt: 2 }), 'repeated_refusal')
+
+  const plan = router.routeRefusal('safety_refusal', 1)
+  assert.equal(plan.strategy, 'safety_bounded_delivery')
+  assert.equal(plan.phase, 'reframe')
+  assert.equal(plan.intent, 'missing_context', 'empty context falls back to the context lane')
+  assert.match(plan.prompt, /Keep the model safety boundary/)
+  assert.match(plan.prompt, /Phase=reframe/)
+  assert.match(plan.prompt, /intent=missing_context/)
+  assert.doesNotMatch(plan.prompt, /ignore (?:the )?safety|bypass.*control/i)
+  const routed = router.buildRoutedMessages([{ role: 'user', content: 'goal' }], plan)
+  assert.equal(routed.length, 2)
+  assert.equal(routed[1].role, 'assistant')
+
+  const plain = router.buildRoutedMessages(routed, { ...plan, form: 'plain' })
+  assert.equal(plain.length, 1, 'plain form strips the prior route carrier')
+
+  const analysis = router.routeRefusal('scope_refusal', 1, { userText: '审计这个插件并给出验证命令' })
+  assert.equal(analysis.intent, 'analysis')
+  assert.match(analysis.prompt, /VERIFIED/)
+
+  const transform = router.routeRefusal('tool_refusal', 1, { userText: '修改 packages\/helmd\/src\/router.ts 并运行测试' })
+  assert.equal(transform.intent, 'transformation')
+  assert.match(transform.prompt, /回滚命令|rollback/i)
+
+  const format = router.routeRefusal('format_refusal', 1, { userText: '返回严格 JSON schema，字段必须完整' })
+  assert.equal(format.intent, 'format_contract')
+  assert.match(format.prompt, /严格服从格式|exactly/i)
+
+  assert.equal(router.routeRefusal('scope_refusal', 2).phase, 'deliver')
+  assert.equal(router.routeRefusal('scope_refusal', 3).phase, 'fallback')
+  assert.match(router.routeRefusal('scope_refusal', 3).prompt, /nearest useful bounded result/i)
+})
 
 await report.check('isStreamRefusal identifies refusal headers', () => {
   const refusals = [

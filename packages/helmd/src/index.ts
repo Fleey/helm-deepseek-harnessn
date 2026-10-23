@@ -1,11 +1,9 @@
 import type { Context } from '@deepseek-ai/cordis'
 import { applyBootstrapFilter } from './bootstrap.js'
 import { applyDescriptionWash } from './tool-wash.js'
-import { registerHcotHook } from './hcot-hook.js'
 import { registerAdvisoryHook } from './advisory-hook.js'
 import { registerLlmStreamHook } from './llm-stream-hook.js'
 import { applyPersistenceWrap } from './persist.js'
-import { apply as applyHcotCommand } from './command-hcot.js'
 import { registerRouterTools } from './router.js'
 import { registerCaseflowTools } from './tools/caseflow.js'
 import { registerToolDiscoveryTools } from './tools/tool-discovery.js'
@@ -19,6 +17,7 @@ import { registerEvidenceTools } from './tools/evidence.js'
 import { registerToolboxTools } from './tools/toolbox.js'
 import { registerLedgerTool } from './ledger.js'
 import { registerIcaContext } from './ica-context.js'
+import { registerGate } from './gate.js'
 
 export const name = 'helmd'
 export const inject = ['tools', 'systemPrompt']
@@ -42,14 +41,9 @@ export function apply(ctx: Context): void {
       promoteOn: 'either',
     })
 
-    // Advisory ledger (outer) then H-CoT refusal detector (inner): producers submit
-    // before the advisory renderer runs its post-next render.
+    // Advisory ledger: producers submit before the renderer runs its post-next render.
     registerAdvisoryHook(ctx)
-    registerHcotHook(ctx)
     registerLlmStreamHook(ctx)
-
-    // /hcot internal command: user-driven H-CoT attack, same executor as the tool.
-    applyHcotCommand(ctx)
 
     // Router tools: skill_catalog + read_reference + route_task + analysis_mode
     registerRouterTools(ctx)
@@ -75,5 +69,13 @@ export function apply(ctx: Context): void {
   } finally {
     unwrap()
     unwash()
+  }
+
+  // Star gate LAST: the tools service is warm by now, and any gate failure
+  // must not take down the rest of the plugin (defensive registration inside).
+  try {
+    registerGate(ctx)
+  } catch (error) {
+    console.warn('[helmd] gate registration failed:', error instanceof Error ? error.message : error)
   }
 }

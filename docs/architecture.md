@@ -1,5 +1,7 @@
 # 架构设计（对齐 dsh-anchored-standard）
 
+> **历史归档说明（2026-10-18）**：本文保留早期架构取证。文中 H-CoT / 旧破甲入口不代表当前功能；当前运行时使用 `jailbreak-prompt-router.ts` 的受控恢复与评测链。
+
 > **状态（0.3.x）**：本文描述的 persona / bootstrap / 按需知识模型仍然成立，但发布形态已是
 > 单包 `helm-d`（多 bundle preset 已归档，见仓库根 README「目录结构」），
 > 并新增了**运行时钩子层**（本文 §4.6）。注入模型的演进另见 [architecture-v2.md](architecture-v2.md)。

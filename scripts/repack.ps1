@@ -19,6 +19,17 @@ if ($LASTEXITCODE -ne 0) { throw "gen-preset failed (exit $LASTEXITCODE)" }
 Copy-Item (Join-Path $repo "scripts\gen-preset.mjs") (Join-Path $repo "packages\helmd\scripts\gen-preset.mjs") -Force
 Write-Output "generator synced: scripts/gen-preset.mjs -> packages/helmd/scripts/gen-preset.mjs"
 
+# v2 chain: tsc first (build-profiles imports dist/crypt.js), then seal the
+# persona profiles into presets/profiles.dat BEFORE npm pack picks them up.
+Set-Location (Join-Path $repo "packages\helmd")
+npm run build 2>&1 | Select-Object -Last 1
+if ($LASTEXITCODE -ne 0) { throw "tsc build failed (exit $LASTEXITCODE)" }
+node (Join-Path (Join-Path $repo "packages\helmd") "scripts\build-profiles.mjs")
+if ($LASTEXITCODE -ne 0) { throw "build-profiles failed (exit $LASTEXITCODE)" }
+node (Join-Path (Join-Path $repo "packages\helmd") "scripts\build-sealed.mjs")
+if ($LASTEXITCODE -ne 0) { throw "build-sealed failed (exit $LASTEXITCODE)" }
+Write-Output "profiles sealed: presets/profiles.dat"
+
 # Single unified bundle. The unversioned copy keeps the stable download URL
 # https://github.com/ADWMC/helm-d/releases/latest/download/helmd.tgz working
 # across releases (used by installers and the awesome-dsh-plugin listing).

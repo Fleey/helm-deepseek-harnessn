@@ -15,7 +15,7 @@
 
 | 角色 | 例子 | 是否进 prompt | 是否降频 |
 |------|------|---------------|---------|
-| **投递型** | 拒绝信号 → H-CoT 指令 | 是（渲染为 section） | 是（`ignored ≥ 3` 降频） |
+| **投递型** | 拒绝信号 → 受控恢复路由 | 是（渲染为 section） | 是（`ignored ≥ 3` 降频） |
 | **仅计量型** `trackOnly` | `route_task` 的 PRIMARY 卡片 | 否（卡片本身已投递） | 否（每次调用都是一次事实） |
 | **先教后测型** `adaptive` | 汇报四类前缀 `stance:report-prefix` | 账本还不认这条纪律时进 prompt，够了就退场 | 否（`mandatory`），但渲染会退场 |
 
@@ -29,10 +29,10 @@
 
 ```ts
 submitAdvisory(sessionId, {
-  key: 'hcot-on-refusal',            // 同 session 同 key 只留一条
+  key: 'recovery-on-refusal',        // 同 session 同 key 只留一条
   tier: 'mandatory',                 // mandatory 永不降频；recommended / hint 会
   content: '<要注入的正文>',
-  proof: { kind: 'tool_called', tools: ['hcot_attack'] },  // 采纳签名
+  proof: { kind: 'tool_called', tools: ['llm_eval_suite'] },  // 采纳签名
   withinTurns: 1,                    // 超过 N 个 assistant 回合仍未命中 → ignored
   trackOnly: false,                  // 设计量型就置 true
   adaptive: false,                   // 设"先教后测型"就置 true（达标后渲染退场、计量继续）
@@ -73,12 +73,12 @@ submitAdvisory(sessionId, {
 
 | key | 量的纪律 | 触发 | adopted |
 |-----|---------|------|---------|
-| `stance:no-hedge` | **交付**（破甲） | 每轮 | 回复无拒绝/软化话术 |
+| `stance:no-hedge` | **直接交付** | 每轮 | 回复无拒绝/软化话术 |
 | `stance:challenged` | **质疑前提**（反迎合） | 用户消息形如断言（绝对词 / 带单位数字 / 明确要求挑错） | 回复含异议标记（前提、不成立、证据不足、核不到…） |
 
 露出点：`route_task` 卡片、`case_status`、`end_case` 三处都带 `[建议采纳率]`，不依赖单一路径。
 
 > **marker 要窄**：`无法核实来源` 是"质疑前提"纪律**要求**的表达，所以裸 `无法/不能` 不能算 hedge，只有 `我无法协助 / 抱歉，我 / 建议改用 / I cannot assist` 这类**拒绝交付**话术才算。
-> REFUSAL HARDENING 后扩充了部分拒绝变体（`我无法满足 / 请理解我不能 / 这超出了我的能力 /
+> 拒答恢复路由扩充了部分拒绝变体（`我无法满足 / 请理解我不能 / 这超出了我的能力 /
 > 出于伦理 / 需要授权 / i must refuse / against my policy / out of my scope …）——全部是纯交付拒绝
 > 措辞，与"质疑前提"要求的验证声明（无法核实/证据不足）刻意不相交。
