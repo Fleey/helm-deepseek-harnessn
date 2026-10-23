@@ -2,6 +2,7 @@
 // package plus helm-d's built output. One responsibility: locate and load them, or
 // report their absence so a check can skip instead of guessing.
 import { existsSync, realpathSync } from 'node:fs'
+import { homedir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { pathToFileURL } from 'node:url'
 
@@ -39,22 +40,59 @@ function candidateNodeModules() {
     roots.push(join(dir, 'node_modules'), join(dir, 'lib', 'node_modules'))
   }
 
+  // DSH Desktop (incl. DSH NEXT) vendors the host in TWO layouts:
+  //   asar  (2.0.19+): <app>/Resources/app.asar/node_modules — only the desktop
+  //          Electron (RunAsNode) can stat paths inside the archive, so these
+  //          probes no-op under a system node and the suite skips as before;
+  //   app/  (older unpacked builds): <app>/Resources/app/node_modules.
+  // DSH_DESKTOP_APP_DIR points at either node_modules directory directly.
+  const desktopRoots = []
+  if (process.env.DSH_DESKTOP_APP_DIR) desktopRoots.push(process.env.DSH_DESKTOP_APP_DIR)
+  if (process.platform === 'darwin') {
+    for (const name of ['DSH NEXT.app', 'DSH Desktop.app', 'dsh.app']) {
+      for (const base of ['/Applications', join(homedir(), 'Applications')]) {
+        desktopRoots.push(
+          join(base, name, 'Contents', 'Resources', 'app.asar', 'node_modules'),
+          join(base, name, 'Contents', 'Resources', 'app', 'node_modules'),
+        )
+      }
+    }
+  } else if (process.platform === 'win32') {
+    const local = process.env.LOCALAPPDATA ?? ''
+    for (const name of ['dsh-desktop-next', 'DSH NEXT', 'DSH Desktop', 'dsh-desktop']) {
+      desktopRoots.push(
+        join(local, 'Programs', name, 'resources', 'app.asar', 'node_modules'),
+        join(local, 'Programs', name, 'resources', 'app', 'node_modules'),
+      )
+    }
+  }
+  roots.push(...desktopRoots)
+
   return roots.filter((root) => typeof root === 'string' && root !== '')
 }
 
 /** Installed host `dsh-session` entry, or null when this machine has no global dsh. */
 export function hostSessionEntry() {
+  // Desktop layouts (unpacked & asar) vendor `dsh-session` FLAT in their
+  // node_modules — no `@deepseek-ai/dsh/node_modules` nesting — so probe both
+  // tails per root.
+  const tails = [
+    SESSION_TAIL,
+    ['@deepseek-ai', 'dsh-session', 'lib', 'index.js'],
+  ]
   const seen = new Set()
   for (const root of candidateNodeModules()) {
     const key = root.toLowerCase()
     if (seen.has(key)) continue
     seen.add(key)
-    const entry = join(root, ...SESSION_TAIL)
-    if (existsSync(entry)) {
-      // pnpm-style trees expose the package through a symlink; resolve it so the
-      // entry names a real file even when its directory does not. hostStandardEntry()
-      // walks ancestors rather than counting levels, so this is convenience only.
-      try { return realpathSync(entry) } catch { return entry }
+    for (const tail of tails) {
+      const entry = join(root, ...tail)
+      if (existsSync(entry)) {
+        // pnpm-style trees expose the package through a symlink; resolve it so the
+        // entry names a real file even when its directory does not. hostStandardEntry()
+        // walks ancestors rather than counting levels, so this is convenience only.
+        try { return realpathSync(entry) } catch { return entry }
+      }
     }
   }
   return null

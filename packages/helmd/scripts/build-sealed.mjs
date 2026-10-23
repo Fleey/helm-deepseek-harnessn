@@ -75,6 +75,27 @@ for (const rel of distFiles) {
     manifest.files[target] = readFileSync(src, 'utf8')
   }
 }
+
+// ── 1b. scripts/** → payload.dat (extracted to true paths on first activation) ─
+// The header has always claimed this ("scripts/** seals too"), but the
+// implementation only ever sealed dist/. Without this, an installed sealed
+// bundle has NO gen-preset.mjs (health auto-heal reports "unavailable (no
+// generator)" forever) and the eight domain tool script directories are
+// missing — every python-backed tool (bot_analyze, pcap_parse, yara_gen, …)
+// would fail with ENOENT at runtime. Seal them alongside dist so the entry
+// stub extracts scripts/ to their real paths on first import.
+// The plaintext scripts/ dir stays in the repo; npm pack excludes it via the
+// package.json files whitelist, so the tarball carries scripts only inside
+// payload.dat. Release-time helpers (build-sealed/build-profiles) never ship.
+for (const scriptsSource of [join(pkgRoot, 'scripts'), join(pkgRoot, '.real', 'scripts')]) {
+  if (!existsSync(scriptsSource)) continue
+  for (const rel of walk(scriptsSource)) {
+    if (rel === 'build-sealed.mjs' || rel === 'build-profiles.mjs') continue
+    manifest.files[`scripts/${rel}`] = readFileSync(join(scriptsSource, rel), 'utf8')
+  }
+  break
+}
+
 manifest.hash = crypto.createHash('sha256')
   .update(Object.keys(manifest.files).sort().join('\n'))
   .digest('hex')

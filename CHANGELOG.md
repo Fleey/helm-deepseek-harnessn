@@ -4,6 +4,16 @@
 完整发布注记与资产见 [GitHub Releases](https://github.com/ADWMC/helm-d/releases)。
 官方QQ群：**213266664**
 
+## [0.5.1-fork.2] — 2026-10-23（fork：密封分发补全 scripts 封印 + checks 桌面双通道）
+
+两处上游固有缺陷的修复（均为「文档声称、实现未做」，在密封安装态与桌面环境下暴露）：
+
+- **`build-sealed.mjs` 补全 scripts/\*\* 封印**：上游头注一直声称 "scripts/\*\* seals too"，但实现只封了 dist/ —— 密封安装态因此没有 `gen-preset.mjs`（健康卡片 auto-heal 永远报 `unavailable (no generator)`）、没有 `setup-preset.sh`、也没有 8 个域的 83 个工具脚本（`bot_analyze` / `pcap_parse` / `yara_gen` 等运行时 ENOENT）。现在 scripts/\*\* 与 dist 一并封入 `payload.dat`（构建辅助脚本 `build-sealed/build-profiles` 不入包），入口 stub 首次导入时自解压到真实路径；tarball 侧 `files` 白名单依旧排除明文 scripts/，零明文不变
+- **`gen-preset.mjs` 密封 persona 回退**：安装态无明文 `persona.txt`（files 排除）时，从 `presets/profiles.dat` 解出 core profile 作为断言源（内置密钥与 build-sealed 一致，明文仅存内存）——安装态的 `gen-preset --check` 与 auto-heal 从「设计上不可用」变为可用
+- **checks 桌面双通道**：`artifacts.mjs` 宿主探测增加 DSH Desktop 双布局（`app/node_modules` 旧布局、`app.asar/node_modules` 2.0.19+ 布局，`DSH_DESKTOP_APP_DIR` 覆盖），`dsh-session` 平铺 tail；经 `ELECTRON_RUN_AS_NODE=1 <桌面应用二进制> scripts/checks/run-all.mjs` 运行时，原先 8 项 SKIP 全部转 PASS（需 Electron 读 asar 内宿主）
+- **`preset-heal` 断言适配 v2**：`assertPresetArtifact` 的 detail 已改为 `…persona via sealed profiles` 且退休了 patch 级激活行检查，check 的三处断言同步（regex 兼容两种格式；persona 措辞用例改为断言恒 ok）
+- 验证：`typecheck` PASS · 系统 node 通道 checks 14 PASS（SKIP 不变，符合预期）· **Electron 通道 checks 14 PASS 零 SKIP** · 密封 tarball 端到端（pack → 提取 → stub 自解压 → 安装态 `gen-preset --check` OK）· tarball 零明文复验
+
 ## [0.5.1-fork.1] — 2026-10-23（fork：同步上游 0.5.1 + 桌面版双布局适配）
 
 上游仓库被重建（fork 与 upstream 无共同 git 历史），本版本以 upstream/main（0.5.1）为基底重新移植 fork 全部定制：

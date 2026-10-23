@@ -36,12 +36,19 @@
  * Requires a 0.1.7+ host standard (a `plugins:` list). Against an older host it
  * fails loud rather than emitting a preset the current loader cannot consume.
  */
-import { createHash } from 'node:crypto'
+import { createDecipheriv, createHash, scryptSync } from 'node:crypto'
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { execSync } from 'node:child_process'
 import { homedir } from 'node:os'
 import { dirname, isAbsolute, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
+
+// Built-in seal key (mirrors scripts/build-sealed.mjs / build-profiles.mjs) —
+// used only to read the sealed core profile as the persona assertion source
+// in an installed bundle that ships no plaintext persona.
+const SEALED_SECRET = 'helm-d/profiles/v1::6f4d2a0c-9e17-4b8e-a3f2-c81d54e7b930'
+const SEALED_SALT = 'helm-d/profiles/v1::salt-v1'
+const SEALED_KEY = scryptSync(SEALED_SECRET, SEALED_SALT, 32)
 
 const scriptDir = dirname(fileURLToPath(import.meta.url))
 const repoRoot = resolve(scriptDir, '..')
@@ -56,16 +63,49 @@ for (let i = 0; i < process.argv.length - 1; i++) {
 }
 if (outArg !== null && outArg === '') throw new Error('--out requires a file or directory argument')
 
-// Persona search order: repo layout then installed-bundle layout.
-function findPersona() {
+// Persona search order: repo layout then installed-bundle layout. The
+// installed SEALED bundle ships no plaintext persona.txt (files negation) —
+// its persona source of truth is the core profile sealed in
+// presets/profiles.dat (same built-in key as build-sealed.mjs), which falls
+// back in as the assertion source; plaintext lives only in memory.
+/** Sealed core-profile body from profiles.dat, or null when unavailable. */
+function sealedCorePersona() {
   const candidates = [
-    join(repoRoot, 'packages', 'helmd', 'presets', 'persona.txt'),
-    join(repoRoot, 'presets', 'persona.txt'),
+    join(repoRoot, 'packages', 'helmd', 'presets', 'profiles.dat'),
+    join(repoRoot, 'presets', 'profiles.dat'),
   ]
-  for (const c of candidates) if (exists(c)) return c
-  throw new Error('cannot find persona.txt (looked in repo and bundle layouts)')
+  for (const c of candidates) {
+    if (!exists(c)) continue
+    try {
+      const raw = readFileSync(c, 'utf8').trim()
+      const unsealOne = (s) => {
+        const [iv, tag, data] = s.split('.')
+        const cipher = createDecipheriv('aes-256-gcm', SEALED_KEY, Buffer.from(iv, 'base64url'))
+        cipher.setAuthTag(Buffer.from(tag, 'base64url'))
+        return Buffer.concat([cipher.update(Buffer.from(data, 'base64url')), cipher.final()]).toString('utf8')
+      }
+      const catalog = JSON.parse(raw.startsWith('{') ? raw : unsealOne(raw))
+      const core = (catalog.profiles ?? []).find((p) => p.id === 'core')
+      if (core && typeof core.sealed === 'string') return unsealOne(core.sealed)
+    } catch { /* not a sealed catalog — fall through */ }
+  }
+  return null
 }
-const personaPath = findPersona()
+// Plaintext persona when available (repo + plaintext bundles); otherwise the
+// sealed core profile fills the same assertion role in an installed sealed
+// bundle. Persona text never enters the generated artifact (v2 empty prefix),
+// it only feeds the sanity assertions below.
+const personaPath = exists(join(repoRoot, 'packages', 'helmd', 'presets', 'persona.txt'))
+  ? join(repoRoot, 'packages', 'helmd', 'presets', 'persona.txt')
+  : exists(join(repoRoot, 'presets', 'persona.txt'))
+    ? join(repoRoot, 'presets', 'persona.txt')
+    : null
+const personaText = personaPath !== null
+  ? readFileSync(personaPath, 'utf8')
+  : sealedCorePersona()
+if (personaText === null) {
+  throw new Error('cannot find persona.txt or a sealed core profile (looked in repo and bundle layouts)')
+}
 
 // Default output: the package-internal patch in BOTH layouts —
 // repo layout writes packages/helmd/preset.generated.patch.yml, bundle layout
@@ -388,7 +428,6 @@ function assertShape(hostText, out, personaText, base) {
 const hostYml = locateHostStandard()
 const hostText = readFileSync(hostYml, 'utf8')
 const hostHash = createHash('sha256').update(hostText, 'utf8').digest('hex')
-const personaText = readFileSync(personaPath, 'utf8')
 const body = generate(hostText, personaText)
 const generated = `# gen-preset: host=${hostHash}\n\n` + body
 

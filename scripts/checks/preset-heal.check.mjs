@@ -82,7 +82,9 @@ await report.check('a patch generated for an older host is repaired by default',
   writeFileSync(patchPath, drifted.replace(hostHash, 'f'.repeat(64)), 'utf8')
   const base = evaluate()
   assert.match(base.autoHeal, /^healed \(HOST_UPGRADED → OK\)/, `expected a repair, got ${base.autoHeal}`)
-  assert.match(base.autoHeal, /artifact check OK \(\d+ rows \(host standard \+ helmd\)\)/, 'a repair must assert the artifact it wrote')
+  // 0.5.1 v2 detail suffixes vary: 'host standard + helmd' (pre-v2) or
+  // 'host standard + helmd; persona via sealed profiles' (v2).
+  assert.match(base.autoHeal, /artifact check OK \(\d+ rows \(host standard \+ helmd(; persona via sealed profiles)?\)\)/, 'a repair must assert the artifact it wrote')
 })
 
 // The structural assertion on its own inputs.
@@ -106,10 +108,15 @@ await report.check('it rejects a patch whose entry was not retargeted', () => {
   assert.match(bad.detail, /not retargeted/)
 })
 
-await report.check('it rejects a patch without the activation line', () => {
-  const bad = assertPresetArtifact(healedText.replace(/helmd online[^\n]*/g, 'somebody else'), fixtureText)
-  assert.equal(bad.ok, false, 'a foreign persona must fail the assertion')
-  assert.match(bad.detail, /activation line missing/)
+await report.check('it accepts a patch regardless of persona wording (v2: sealed profiles)', () => {
+  // 0.5.1 v2: the persona ships sealed in profiles.dat, the patch carries an
+  // EMPTY persona prefix, and the patch-level activation-line check is retired
+  // (health.ts assertPresetArtifact). Persona wording is therefore not an
+  // artifact-level concern anymore — the assertion must stay ok either way.
+  const tweaked = assertPresetArtifact(healedText.replace(/helmd online[^\n]*/g, 'somebody else'), fixtureText)
+  assert.equal(tweaked.ok, true, tweaked.detail)
+  const untouched = assertPresetArtifact(healedText, fixtureText)
+  assert.equal(untouched.ok, true, untouched.detail)
 })
 
 // The artifact this package actually ships, judged against the host actually
@@ -136,7 +143,8 @@ if (!realIs017) {
     process.env.HELMD_PRESET_PATCH = join(pkgDir, 'preset.generated.patch.yml')
     const base = evaluate()
     assert.equal(base.status, 'OK', `expected OK, got ${base.status}: ${base.detail}`)
-    assert.match(base.detail, /artifact check OK \(\d+ rows \(host standard \+ helmd\)\)/)
+    // 0.5.1 v2 detail suffixes vary (see the repair case above).
+    assert.match(base.detail, /artifact check OK \(\d+ rows \(host standard \+ helmd(; persona via sealed profiles)?\)\)/)
   })
 }
 
