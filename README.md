@@ -81,6 +81,8 @@ github:Fleey/helm-deepseek-harnessn#main&path:packages/helmd
 
 > 根地址为什么能装：根 `package.json` 声明了 `dsh.bundle.patch`，并用 `exports`/`main` 转发到 `packages/helmd` 的构建产物；根目录的 `cordis.patch.yml`、`preset.generated.patch.yml`、`client.js` 是子包同名文件的转发副本，唯一差异是 patch 行里的模块名写作 `helmd`（DSH 按**实际挂载的包名**作为 Loader 条目名与客户端模块 id，根包名是 `helmd` 而非 `@adwmc/helm-d`）。改子包的 patch/preset/client 时，需同步这两处转发文件。
 
+> **更新已装的 github 版必须「移除再装」**：pnpm 会把 git 依赖在 `pnpm-lock.yaml` 里钉到安装当时的 commit（`.../tar.gz/<sha>`）。仓库推了新提交后，直接在插件页再点一次「添加」只会刷新 lockfile 里的 sha，**已经解包到 `node_modules` 的那份不会重新展开**——界面表现就是旧功能/旧弹窗还在。正确做法：插件管理页先**移除** helmd，再重新添加同一地址，然后完全退出并重启 DSH NEXT。核实方法：`grep -A3 '^      helmd:' <profile>/pnpm-lock.yaml` 里的 sha 应等于 `git ls-remote <repo> main`。
+
 桌面版行为差异与适配：
 
 | 项 | 行为 |
