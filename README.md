@@ -23,6 +23,46 @@
 
 > **仅供学习交流与授权安全评估。** 使用者须自行确保所有操作均在本人拥有的资产或已获得书面授权的范围内进行。未经授权对他人系统进行扫描、探测或入侵属于违法行为。本项目按 MIT "原样"提供，不附带任何担保。部分代码由 AI 辅助生成，使用前请自行审查。
 
+## 关于本仓库（Fork）
+
+本仓库是 [**ADWMC/helm-d**](https://github.com/ADWMC/helm-d)（helmd）的 fork，唯一目标是**让 helmd 支持 dsh 桌面版（DSH NEXT / DSH Desktop）**。上游 0.5.1 的全部能力（34 工具、多破甲 profiles、密封分发、362 篇参考、健康卡片、工作台）原样保留，本文其余部分即上游文档。
+
+### 相对上游的调整点（全部围绕桌面版适配）
+
+| # | 文件 | 调整 |
+|---|------|------|
+| 1 | `packages/helmd/scripts/gen-preset.mjs`（与根 `scripts/` 副本同步） | `desktopStandardCandidates()` 同时探测桌面版两种宿主布局：旧的**未打包**布局 `<app>/Resources/app/node_modules` 与新版（DSH NEXT 2.0.19+）的 **asar** 布局 `<app>/Resources/app.asar/node_modules`——asar 内路径只有桌面 Electron（RunAsNode）能读；支持 `DSH_DESKTOP_APP_DIR` 覆盖 |
+| 2 | `packages/helmd/src/health.ts` | 进程内定位宿主 standard：`process.resourcesPath` 精确定位 + 同套桌面双布局探测，asar 优先；`HOST_STANDARD_TAILS` 增加桌面平铺 tail；auto-heal 在 Electron 进程内 spawn 自动加 `ELECTRON_RUN_AS_NODE=1` |
+| 3 | `packages/helmd/scripts/setup-preset.sh` | 无系统 node 时回退桌面 Electron；有系统 node 但探不到宿主（asar 布局）时也自动重试 Electron 通道 |
+| 4 | `install.sh`（fork 附加，上游已移除安装脚本） | `desktop` 分支：desktop profile 由应用独占管理，脚本只做 profile 校验、应用内安装指引与 preset 重派生 |
+| 5 | `packages/helmd/client.js` | 会话标签栏（对话/轨迹/helmd）工作台视图：仅在 helmd-preset 会话注册；`TabErrorBoundary` 拦截单标签页渲染错误（Intercept Log 白屏修复） |
+| — | `pnpm-workspace.yaml` / peer 范围 | 未改动：上游 0.5.1 已对齐 dsh `0.2.1-rc.2` cohort，产物指纹与本机 DSH NEXT 2.0.19-next 的宿主 standard 一致 |
+
+### 已验证环境
+
+- DSH NEXT（`dsh-desktop-next` 2.0.19-next，内置 dsh 0.2.1-rc.2，**asar 布局**）· macOS
+- `gen-preset --check`（Electron RunAsNode 通道）→ `preset check OK`；`setup-preset.sh`（系统 node 存在但探不到宿主时自动走 Electron 回退）→ `unchanged / nothing to write`
+- 旧版布局（DSH NEXT 2.0.17，未打包 `app/node_modules`）此前的验证结论同样保留（探测顺序兼容两种布局）
+
+### 桌面版安装（30 秒版）
+
+```bash
+# 1) DSH NEXT → 设置 → 插件 → 添加：@adwmc/helm-d（或本仓库 tarball / github 路径）
+# 2) 包就位后重派生 preset（自动探测 asar / 未打包宿主）：
+./install.sh desktop
+# 3) 完全退出并重启 DSH NEXT → preset 选 helmd → 会话发送 helmd
+```
+
+桌面版行为差异与适配：
+
+| 项 | 行为 |
+|------|------|
+| 宿主 standard 定位 | 两种布局都探测：`<app>/Resources/app/node_modules`（旧）与 `<app>/Resources/app.asar/node_modules`（新）；Electron 进程内直接用 `process.resourcesPath` 精确定位 |
+| asar 可读性 | asar 内路径只有 Electron（含 RunAsNode）能读——`setup-preset.sh` / `install.sh desktop` 自动走 Electron 通道；纯系统 node 会得到带指引的错误提示 |
+| 健康卡片自动修复 | heal 在 Electron 进程内 spawn 时自动加 `ELECTRON_RUN_AS_NODE=1`，无需系统 node |
+| 路径覆盖 | `DSH_DESKTOP_APP_DIR` 指向应用的 node_modules（未打包）或 `app.asar/node_modules`（asar）；`DSH_HOST_STANDARD_YML` 行为不变 |
+| 安装后生命周期 | 插件增删改由应用内插件管理页负责；`~/.dsh` 与 web 侧共享 |
+
 ## 先说清楚：你要的是哪种破甲
 
 社区里有两类工具，目标不同，先对齐你再选：

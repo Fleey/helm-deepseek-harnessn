@@ -6,7 +6,7 @@ set -euo pipefail
 PROFILE="${1:-web}"
 DSH_HOME="${DSH_HOME:-$HOME/.dsh}"
 ACTIVATION="helmd"
-REPO="ADWMC/helm-d"
+REPO="${HELMD_REPO:-ADWMC/helm-d}"
 TMPDIR="$(mktemp -d)"
 trap 'rm -rf "$TMPDIR"' EXIT
 CACHE_DIR="$DSH_HOME/.tgz-cache"
