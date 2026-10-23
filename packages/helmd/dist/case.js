@@ -1,0 +1,321 @@
+// Case workspace core — pure fs/state operations, no cordis deps.
+// Everything a case needs lives on disk; the in-memory map only binds
+// a session (exec.agent.id) to its active case dir for convenience.
+import { createHash } from 'node:crypto';
+import { createReadStream, existsSync } from 'node:fs';
+import { mkdir, copyFile, writeFile, appendFile, readFile, readdir, rename } from 'node:fs/promises';
+import { join, resolve, basename } from 'node:path';
+const bindings = new Map();
+export function getCase(sessionId) {
+    return bindings.get(sessionId ?? '__global__');
+}
+export function bindCase(sessionId, info) {
+    bindings.set(sessionId ?? '__global__', info);
+}
+export function unbindCase(sessionId) {
+    const key = sessionId ?? '__global__';
+    const info = bindings.get(key);
+    bindings.delete(key);
+    return info;
+}
+/** Root resolution: explicit arg > HELMD_CASES_DIR > process.cwd(). */
+export function casesRoot(root) {
+    const base = root?.trim() || process.env.HELMD_CASES_DIR?.trim() || process.cwd();
+    return resolve(base, 'helmd-cases');
+}
+export function slugify(text, max = 48) {
+    const clean = text
+        .replace(/[\\/:\*\?"<>\|]+/g, ' ')
+        .trim()
+        .replace(/[^\p{L}\p{N}_-]+/gu, '-')
+        .replace(/^-+|-+$/g, '')
+        .slice(0, max)
+        .replace(/-+$/g, '');
+    return clean || 'case';
+}
+function today() {
+    const d = new Date();
+    const p = (n) => String(n).padStart(2, '0');
+    return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`;
+}
+function nowStamp() {
+    const d = new Date();
+    const p = (n) => String(n).padStart(2, '0');
+    return `${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())}`;
+}
+async function sha256File(path) {
+    return await new Promise((resolvePromise, reject) => {
+        const hash = createHash('sha256');
+        const stream = createReadStream(path);
+        stream.on('data', (chunk) => hash.update(chunk));
+        stream.on('end', () => resolvePromise(hash.digest('hex')));
+        stream.on('error', reject);
+    });
+}
+/** Create <root>/helmd-cases/<date>-<slug>[/] with collision suffixes. */
+export async function createCaseDir(opts) {
+    const base = casesRoot(opts.root);
+    const hint = slugify(opts.goal || basename(opts.samples[0] ?? ''));
+    let name = `${today()}-${hint}`;
+    for (let i = 2; existsSync(join(base, name)); i++)
+        name = `${today()}-${hint}-${i}`;
+    const dir = join(base, name);
+    for (const sub of ['sample', 'evidence', 'scripts']) {
+        await mkdir(join(dir, sub), { recursive: true });
+    }
+    const lines = [];
+    let id = 0;
+    for (const sample of opts.samples) {
+        if (!existsSync(sample))
+            throw new Error(`sample not found: ${sample}`);
+        const dest = join(dir, 'sample', basename(sample));
+        await copyFile(sample, dest);
+        const sha = await sha256File(dest);
+        id++;
+        const eid = `E-${String(id).padStart(3, '0')}`;
+        await writeFile(join(dir, 'evidence', `${eid}-sha256.txt`), `${sha}  ${basename(sample)}\nsource: ${resolve(sample)}\n`, 'utf8');
+        lines.push(`  - sample/${basename(sample)} sha256:${sha}`);
+    }
+    const caseMd = [
+        `# CASE ${name}`,
+        `status: open`,
+        `mode: ${opts.mode}`,
+        `route: ${opts.route}`,
+        `goal: ${opts.goal}`,
+        ...(lines.length ? ['samples:', ...lines] : []),
+        '',
+        '## timeline',
+        `- [${nowStamp()}] BEGIN — created by begin_case`,
+        '',
+        '## resume（压缩恢复契约：恢复时先 case_status()；压缩前把 1-6 更新到当前）',
+        '1. 目标与用户约束：goal + 用户说过的范围/边界（安全相关约束逐字保留，不要转述）',
+        '2. 已确认事实：验证过的结论 + 对应 E-id（未验证的猜测不要写进来）',
+        '3. 关键参数：命令 / 偏移 / 哈希 / 工具版本 —— 正文只写 E-id，细节留在 evidence/',
+        '4. 已排除的路线：试过且失败的路子（同步进 DEAD_ENDS，写明根因）',
+        '5. 当前进展：正在做的这一步、做到哪、下一步的最小动作',
+        '6. 待办与阻塞：等材料 / 等外部结果 / 等用户技术选择（写明等什么、由谁给）',
+        '',
+    ].join('\n');
+    await writeFile(join(dir, 'CASE.md'), caseMd, 'utf8');
+    await writeFile(join(dir, 'findings.md'), `# FINDINGS ${name}\n`, 'utf8');
+    return { dir, name, goal: opts.goal, mode: opts.mode, route: opts.route };
+}
+/** Evidence files present for a case (E-xxx entries), counted from disk. */
+export async function countEvidence(caseDir) {
+    const files = await readdir(join(caseDir, 'evidence')).catch(() => []);
+    return files.filter((f) => /^E-\d{3}/.test(f)).length;
+}
+/**
+ * Next evidence id for one case directory.
+ *
+ * The directory is scanned once per case, not once per save: this runs on the
+ * tool-call path for EVERY domain tool while a case is open, and a readdir grows
+ * with the evidence count. After the first scan the counter is process-local —
+ * the case directory is created and owned by this process, so no external writer
+ * can invalidate it. Restart safety is preserved by the initial scan.
+ */
+const evidenceCounters = new Map();
+/** Next E-number = max existing + 1; the scan happens once per case directory. */
+export async function nextEvidenceId(caseDir) {
+    const cached = evidenceCounters.get(caseDir);
+    if (cached !== undefined) {
+        const next = cached + 1;
+        evidenceCounters.set(caseDir, next);
+        return `E-${String(next).padStart(3, '0')}`;
+    }
+    const files = await readdir(join(caseDir, 'evidence')).catch(() => []);
+    let max = 0;
+    for (const f of files) {
+        const m = /^E-(\d{3})-/.exec(f);
+        if (m)
+            max = Math.max(max, parseInt(m[1], 10));
+    }
+    evidenceCounters.set(caseDir, max + 1);
+    return `E-${String(max + 1).padStart(3, '0')}`;
+}
+/** Drop a case directory's counter (called when its case closes). */
+export function resetEvidenceCounter(caseDir) {
+    evidenceCounters.delete(caseDir);
+}
+export async function saveEvidence(caseDir, toolLabel, content, summary) {
+    const id = await nextEvidenceId(caseDir);
+    const safeTool = toolLabel.replace(/[^a-zA-Z0-9_-]+/g, '_').slice(0, 40) || 'output';
+    const capped = content.length > 256 * 1024
+        ? content.slice(0, 256 * 1024) + `\n[truncated at 256KB; full length ${content.length}]\n`
+        : content;
+    const path = join(caseDir, 'evidence', `${id}-${safeTool}.txt`);
+    await writeFile(path, capped, 'utf8');
+    await appendTimeline(caseDir, `${toolLabel} → ${id} — ${summary.slice(0, 80)}`);
+    return { id, path };
+}
+export async function appendTimeline(caseDir, line) {
+    await appendFile(join(caseDir, 'CASE.md'), `- [${nowStamp()}] ${line}\n`, 'utf8');
+}
+export async function loadCaseMd(caseDir) {
+    return await readFile(join(caseDir, 'CASE.md'), 'utf8');
+}
+export async function validateEvidenceIds(caseDir, ids) {
+    const files = await readdir(join(caseDir, 'evidence')).catch(() => []);
+    const known = files
+        .map((f) => /^(E-\d{3})-/.exec(f)?.[1])
+        .filter((x) => Boolean(x));
+    const missing = ids.filter((id) => !known.includes(id));
+    return { ok: missing.length === 0, missing, known };
+}
+export async function appendFinding(caseDir, title, detail, ids) {
+    await appendFile(join(caseDir, 'findings.md'), `\n## ${title}\n${detail}\nevidence: ${ids.join(', ')}\n`, 'utf8');
+    await appendTimeline(caseDir, `FINDING — ${title} (${ids.join(', ')})`);
+}
+export async function closeCase(caseDir, summary) {
+    // 1. Auto-sweep any loose files left in case root to evidence/
+    const swept = await sweepCaseRootFiles(caseDir);
+    if (swept.length > 0) {
+        await appendTimeline(caseDir, `SWEEP — auto-archived loose files to evidence/: ${swept.join(', ')}`);
+    }
+    // 2. Mark completed
+    const md = await loadCaseMd(caseDir);
+    await writeFile(join(caseDir, 'CASE.md'), md.replace(/^status: open/m, 'status: completed'), 'utf8');
+    if (summary)
+        await appendTimeline(caseDir, `END — ${summary.slice(0, 120)}`);
+    else
+        await appendTimeline(caseDir, 'END — closed by end_case');
+}
+/** List all case directories under casesRoot with metadata. */
+export async function listCasesOnDisk(root) {
+    const base = casesRoot(root);
+    if (!existsSync(base))
+        return [];
+    try {
+        const entries = await readdir(base, { withFileTypes: true });
+        const results = [];
+        for (const entry of entries) {
+            if (!entry.isDirectory())
+                continue;
+            const dirPath = join(base, entry.name);
+            const caseMdPath = join(dirPath, 'CASE.md');
+            if (existsSync(caseMdPath)) {
+                try {
+                    const md = await readFile(caseMdPath, 'utf8');
+                    const statusMatch = /^status:\s*(open|completed)\b/m.exec(md);
+                    const goalMatch = /^goal:\s*(.*)$/m.exec(md);
+                    const modeMatch = /^mode:\s*(.*)$/m.exec(md);
+                    const routeMatch = /^route:\s*(.*)$/m.exec(md);
+                    const evidenceCount = await countEvidence(dirPath);
+                    const looseFiles = await listLooseFilesInCase(dirPath);
+                    results.push({
+                        name: entry.name,
+                        dir: dirPath,
+                        status: statusMatch?.[1] ?? 'unknown',
+                        goal: goalMatch?.[1]?.trim() ?? 'unspecified',
+                        mode: modeMatch?.[1]?.trim() ?? 'full',
+                        route: routeMatch?.[1]?.trim() ?? 'pending (route_task)',
+                        evidenceCount,
+                        looseFiles,
+                    });
+                }
+                catch { }
+            }
+        }
+        results.sort((a, b) => b.name.localeCompare(a.name));
+        return results;
+    }
+    catch {
+        return [];
+    }
+}
+/** Check for non-case stray directories or files sitting directly in helmd-cases/. */
+export async function auditCasesRoot(root) {
+    const base = casesRoot(root);
+    const cases = await listCasesOnDisk(root);
+    const strays = [];
+    if (!existsSync(base))
+        return { cases, strays };
+    try {
+        const entries = await readdir(base, { withFileTypes: true });
+        for (const entry of entries) {
+            if (entry.isFile()) {
+                strays.push(`file:${entry.name}`);
+            }
+            else if (entry.isDirectory()) {
+                const caseMdPath = join(base, entry.name, 'CASE.md');
+                if (!existsSync(caseMdPath)) {
+                    strays.push(`dir:${entry.name}`);
+                }
+            }
+        }
+    }
+    catch { }
+    return { cases, strays };
+}
+/** Find the most recently created case marked status: open. */
+export async function findOpenCaseOnDisk(root) {
+    const all = await listCasesOnDisk(root);
+    const open = all.find((c) => c.status === 'open');
+    if (!open)
+        return undefined;
+    return {
+        dir: open.dir,
+        name: open.name,
+        goal: open.goal,
+        mode: open.mode,
+        route: open.route,
+    };
+}
+/** Load a specific case by directory or folder name. */
+export async function loadCaseInfoFromDisk(caseDirOrName, root) {
+    const base = casesRoot(root);
+    const dirPath = caseDirOrName.includes('/') || caseDirOrName.includes('\\')
+        ? resolve(caseDirOrName)
+        : join(base, caseDirOrName);
+    const caseMdPath = join(dirPath, 'CASE.md');
+    if (!existsSync(caseMdPath))
+        return undefined;
+    try {
+        const md = await readFile(caseMdPath, 'utf8');
+        const goalMatch = /^goal:\s*(.*)$/m.exec(md);
+        const modeMatch = /^mode:\s*(.*)$/m.exec(md);
+        const routeMatch = /^route:\s*(.*)$/m.exec(md);
+        return {
+            dir: dirPath,
+            name: basename(dirPath),
+            goal: goalMatch?.[1]?.trim() ?? 'unspecified',
+            mode: modeMatch?.[1]?.trim() ?? 'full',
+            route: routeMatch?.[1]?.trim() ?? 'pending (route_task)',
+        };
+    }
+    catch {
+        return undefined;
+    }
+}
+/** List any loose unorganized files directly in the case root. */
+export async function listLooseFilesInCase(caseDir) {
+    const loose = [];
+    try {
+        const entries = await readdir(caseDir, { withFileTypes: true });
+        for (const e of entries) {
+            if (e.isFile() && e.name !== 'CASE.md' && e.name !== 'findings.md') {
+                loose.push(e.name);
+            }
+        }
+    }
+    catch { }
+    return loose;
+}
+/** Auto-sweep unorganized files from case root into evidence/. */
+export async function sweepCaseRootFiles(caseDir) {
+    const swept = [];
+    try {
+        const loose = await listLooseFilesInCase(caseDir);
+        for (const name of loose) {
+            const src = join(caseDir, name);
+            const dest = join(caseDir, 'evidence', name);
+            if (!existsSync(dest)) {
+                await rename(src, dest);
+                swept.push(name);
+            }
+        }
+    }
+    catch { }
+    return swept;
+}
+//# sourceMappingURL=case.js.map

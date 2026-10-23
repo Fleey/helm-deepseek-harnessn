@@ -46,13 +46,28 @@
 
 ### 桌面版安装（30 秒版）
 
+DSH NEXT → 设置 → 插件 → 添加，安装地址**必须指向 `packages/helmd` 子包**（仓库根 package.json 无 `dsh.bundle` 声明，填根地址会报「这个包没有声明组合包」）：
+
+```text
+# 1) npm 包名（上游发布版）：
+@adwmc/helm-d
+
+# 2) github 路径（本 fork；pnpm 子目录语法 —— 注意 #<commit>&path:，"tree/main" 写法 pnpm 不认）：
+github:Fleey/helm-deepseek-harnessn#main&path:packages/helmd
+
+# 3) 本地 tarball（开箱即用，推荐）：
+#    先构建：cd packages/helmd && npm run build && node scripts/build-profiles.mjs && node scripts/build-sealed.mjs
+#    再 npm pack，把产物 tgz 的绝对路径填进安装框
+```
+
 ```bash
-# 1) DSH NEXT → 设置 → 插件 → 添加：@adwmc/helm-d（或本仓库 tarball / github 路径）
 # 2) 包就位后跑 preset 体检（0.4.x 明文包会按本机宿主重派生；0.5.x 密封包
-#    无包内生成器，保留随包产物、以健康卡片判定为准）：
+#    依赖自解压出的 scripts/gen-preset.mjs，以健康卡片判定为准）：
 ./install.sh desktop
 # 3) 完全退出并重启 DSH NEXT → preset 选 helmd → 会话发送 helmd
 ```
+
+> github 路径安装为什么可行：本 fork 已把 `packages/helmd/dist/` 构建产物提交入库（局部 negate 根 `.gitignore` 的 `dist/` 忽略），pnpm 对 git 依赖不执行构建脚本，没有 dist 的 git 安装无法启动。
 
 桌面版行为差异与适配：
 

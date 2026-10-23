@@ -1,0 +1,7 @@
+# Negate the repo-wide `dist/` ignore for THIS package only: the built
+# modules must ship in git so a `github:<repo>#<commit>&path:packages/helmd`
+# install is usable straight away (pnpm runs no build scripts for
+# dependencies, so a git checkout without dist/ cannot boot). The npm
+# tarball and the sealed payload.dat are both derived from these files —
+# regenerate with `pnpm --filter @adwmc/helm-d build` after touching src/.
+!dist/
