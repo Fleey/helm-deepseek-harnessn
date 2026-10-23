@@ -6,7 +6,7 @@
 
 **DeepSeek Harness 破甲安全分析插件**
 
-多破甲热切换 · 证据强制入链 · 34 工具 · 362 篇按需参考 · Android / Web / Native / Protocol / Malware / AI-Security 六域即开即用
+多破甲热切换 · 证据强制入链 · 35 工具 · 362 篇按需参考 · Android / Web / Native / Protocol / Malware / AI-Security 六域即开即用
 
 **求 Star 收藏 ⭐** 如要二开请看 [致谢](#致谢)
 
@@ -17,7 +17,7 @@
 [![Node >=22.19](https://img.shields.io/badge/Node-%3E%3D22.19.0-green)](https://nodejs.org)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
-[安装](#安装) · [八题实测](#八题实测) · [多破甲](#多破甲) · [34 工具](#34-工具) · [架构](#架构) · [工作台](#安全分析工作台) · [更新日志](CHANGELOG.md)
+[安装](#安装) · [八题实测](#八题实测) · [多破甲](#多破甲) · [35 工具](#35-工具) · [架构](#架构) · [工作台](#安全分析工作台) · [更新日志](CHANGELOG.md)
 
 </div>
 
@@ -25,7 +25,7 @@
 
 ## 关于本仓库（Fork）
 
-本仓库是 [**ADWMC/helm-d**](https://github.com/ADWMC/helm-d)（helmd）的 fork，唯一目标是**让 helmd 支持 dsh 桌面版（DSH NEXT / DSH Desktop）**。上游 0.5.1 的全部能力（34 工具、多破甲 profiles、密封分发、362 篇参考、健康卡片、工作台）原样保留，本文其余部分即上游文档。
+本仓库是 [**ADWMC/helm-d**](https://github.com/ADWMC/helm-d)（helmd）的 fork，唯一目标是**让 helmd 支持 dsh 桌面版（DSH NEXT / DSH Desktop）**。上游 0.5.1 的全部能力（35 工具、多破甲 profiles、密封分发、362 篇参考、健康卡片、工作台）原样保留，本文其余部分即上游文档。
 
 ### 相对上游的调整点（全部围绕桌面版适配）
 
@@ -146,7 +146,7 @@ end_case(summary)
 
 规则写在代码里（`caseflow.ts`），不是写在提示词里求模型遵守。
 
-## 34 工具
+## 35 工具
 
 | 域 | 工具 |
 |----|------|

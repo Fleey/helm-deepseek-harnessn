@@ -62,11 +62,13 @@ try {
   const pkg = JSON.parse(readFileSync(join(import.meta.dirname, '..', 'packages', 'helmd', 'package.json'), 'utf8'))
   assert.equal(pkg.exports['.'].default, './dist/health.js', 'the bare name must resolve to the host-plane health entry, never the tool entry')
   assert.equal(pkg.exports['./agent'].default, './dist/index.js', 'the tool entry is reached through the /agent subpath only')
-  assert.match(generated, /`pwsh` is the native terminal tool/)
-  assert.match(generated, /`wsl\.exe -- bash -lc 'command'`/)
-
   // The activation protocol has one source of truth: the helmd persona.
   const persona = readFileSync(join(import.meta.dirname, '..', 'packages', 'helmd', 'presets', 'persona.txt'), 'utf8')
+  // 0.5.1 persona v10 sealed the TERMINAL & EXECUTION guidance inside the
+  // persona profiles (the generated patch carries an EMPTY persona prefix),
+  // so these assertions moved from the generated artifact to the persona itself.
+  assert.match(persona, /`pwsh` is the native terminal/)
+  assert.match(persona, /wsl\.exe -- bash -lc/)
   assert.equal((persona.match(/Exact input "helmd"/g) ?? []).length, 1)
   assert.match(persona, /Exact input "helmd" → reply ONLY: "helmd online\. Analyst active\. Awaiting task\."/)
   assert.doesNotMatch(readFileSync(join(import.meta.dirname, '..', 'packages', 'router', 'prompt.md'), 'utf8'), /ACTIVATION|reply ONLY|sends exactly/i)
