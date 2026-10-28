@@ -8,6 +8,10 @@
 //   GET /api/helmd/profile   → armor profile catalog + active id
 //   POST /api/helmd/profile  → hot-switch the active armor profile {"id":"..."}
 //   GET /api/helmd/update    → installed vs latest release (GitHub → npm)
+//   GET /api/helmd/case[?sessionId=…]            → the case bound to THIS session
+//   GET /api/helmd/case/hypotheses[?sessionId=…] → hypothesis ledger for that case
+//   GET /api/helmd/case/findings[?sessionId=…]   → structured findings
+//   GET /api/helmd/case/evidence[?sessionId=…]   → evidence entries
 //
 // (fork: the /gate family is gone with the star gate; /eval is gone with
 // model-probe — the model-evaluation subsystem was removed upstream in 0.5.2.)

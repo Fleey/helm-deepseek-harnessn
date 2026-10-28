@@ -59,7 +59,7 @@
 - settings 健康卡片注册（`settings.plugin.item` 槽位在 dsh 0.2.1 不存在的死代码）——旧 client 里的注册一并删除
 - `docs/design/**`、CI workflow、CONTRIBUTING/SECURITY 等工程文档——非运行时，按需另行取用
 
-- 验证：`pnpm typecheck` PASS · 系统 node 通道 checks **21 PASS** · **Electron RunAsNode 通道 checks 21 PASS 零 SKIP**（DSH NEXT 2.0.19-next / dsh 0.2.1-rc.2）· `gen-preset --check` OK（asar 宿主）· 封印 tarball `verify-pack` PASS（197 sealed files 零明文）· root shim 同步 PASS
+- 验证：`pnpm typecheck` PASS · 系统 node 通道 checks **21 PASS** · **Electron RunAsNode 通道 checks 21 PASS 零 SKIP**（DSH NEXT 2.0.19-next / dsh 0.2.1-rc.2）· `gen-preset --check` OK（asar 宿主）· 封印 tarball `verify-pack` PASS（194 sealed files 零明文）· root shim 同步 PASS
 
 ## [0.5.1-fork.3] — 2026-10-23（fork：移除 Star 弹窗与设备流解锁 + 根地址可直接安装）
 

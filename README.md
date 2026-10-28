@@ -46,7 +46,7 @@
 - DSH NEXT（`dsh-desktop-next` 2.0.19-next，内置 dsh 0.2.1-rc.2，**asar 布局**）· macOS
 - `gen-preset --check`（Electron RunAsNode 通道）→ `preset check OK`；`setup-preset.sh`（系统 node 存在但探不到宿主时自动走 Electron 回退）→ `unchanged / nothing to write`
 - 旧版布局（DSH NEXT 2.0.17，未打包 `app/node_modules`）此前的验证结论同样保留（探测顺序兼容两种布局）
-- **0.5.2-fork.1 验证**：系统 node 通道 checks 21 PASS · Electron RunAsNode 通道 21 PASS 零 SKIP · 封印 tarball verify-pack PASS（197 sealed files 零明文）
+- **0.5.2-fork.1 验证**：系统 node 通道 checks 21 PASS · Electron RunAsNode 通道 21 PASS 零 SKIP · 封印 tarball verify-pack PASS（194 sealed files 零明文）
 
 ### 桌面版安装（30 秒版）
 

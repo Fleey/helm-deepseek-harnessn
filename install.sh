@@ -6,7 +6,7 @@ set -euo pipefail
 PROFILE="${1:-web}"
 DSH_HOME="${DSH_HOME:-$HOME/.dsh}"
 ACTIVATION="helmd"
-REPO="${HELMD_REPO:-ADWMC/helm-d}"
+REPO="${HELMD_REPO:-Fleey/helm-deepseek-harnessn}"
 TMPDIR="$(mktemp -d)"
 trap 'rm -rf "$TMPDIR"' EXIT
 CACHE_DIR="$DSH_HOME/.tgz-cache"
@@ -50,7 +50,7 @@ if [ "$PROFILE" = "desktop" ]; then
     echo "  DSH NEXT -> Settings/设置 -> Plugins/插件 -> Add/添加, then pick ONE:"
     echo "    1) npm package name:  @adwmc/helm-d"
     echo "    2) tarball URL:       https://github.com/$REPO/releases/download/vX.Y.Z/helmd.tgz (versioned; not latest/download)"
-    echo "    3) github:            github:ADWMC/helm-d/tree/main/packages/helmd"
+    echo "    3) github:            github:Fleey/helm-deepseek-harnessn (bare repo URL installs the root shim)"
     echo "After the app finishes installing, re-run: $0 desktop"
     echo "(this re-derives the preset patch from the app's own dsh standard)"
     exit 0
