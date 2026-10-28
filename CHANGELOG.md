@@ -4,6 +4,63 @@
 完整发布注记与资产见 [GitHub Releases](https://github.com/ADWMC/helm-d/releases)。
 官方QQ群：**213266664**
 
+## [0.5.2-fork.1] — 2026-10-28（fork：移植上游 0.5.2 核心 — Case 会话隔离 / 假设账本 / 破甲热切换 / 新工作台）
+
+上游 v0.5.2（重发版）核心能力的完整移植，叠加 fork 桌面适配保留项。上游与 fork 基线（v0.5.1）之间的全部差异已逐文件核对（90 文件）后选择性吸收。
+
+### Case 会话隔离 + 提示词注入（上游重发主打）
+
+- **case 绑定按 sessionId 持久化**：`getCase`/`bindCase`/`unbindCase` 落盘到 `$DSH_HOME/storages/helmd/sessions/<sha256(sessionId)>.json`，宿主重启后仍能恢复；工作台不再跨会话拿磁盘上最新的 open case
+- **每轮 `[helm-d case]` 注入**：新增 `src/case-context.ts` 挂在 prompt-assembly 瀑布——case 名称 / goal / 目录 / mode 与「不得重复开 case、record_finding 必须带 repro_cmd」两条规则，模型压缩后不再忘记当前 case
+
+### 假设账本 + 结论门禁（上游 L3）
+
+- **新工具 `record_hypothesis` / `update_hypothesis`**：测试先行——先立假设（statement / expected / test_cmd），跑完测试用 update 收敛（confirmed / refuted / blocked，后两者强制带证据编号）；同一时间只允许一个 open 假设
+- **`record_finding` 必填 `repro_cmd`**：没有可复现命令的结论不是结论；DEEP 模式 `end_case` 全量复查，缺 repro 直接拒绝关案
+- **`case_status` 新增 `[autonomy]` 段**（`src/autonomy.ts`）：完整假设链、findings、evidence、dead ends、匹配 playbook、next action、warnings——模型恢复现场不再翻磁盘
+- **L4-lite 调度**（`persist.ts`）：工具结果后按 case 状态推 advisory next action（3 秒节流、内容变化才推，不 gate）
+
+### 破甲档位热切换（上游重发主打）
+
+- **`GET/POST /api/helmd/profile` + `src/profile.ts`**：core / stealth / redteam-max 三档即时切换——dispose 旧 persona section 原地重注册，下一会话生效无需重启；未知 id 返回 400 不动当前档；切换失败自动回滚
+- **`stealth` / `redteam-max` 成完整档位**：`build-profiles.mjs` 支持 `--- extends: core ---` overlay，模式规则叠加在完整 core 人设之后（切换不再丢主档内容）
+- **封印尾置 boost 段**：`presets/boost.txt`（profiles.dat 内封印）以最高 order 注册，长上下文漂移后策略仍收尾生效
+- （fork）device-flow / GitHub 请求为零：`switchProfile` 从上游 `gate.ts` 剥离进 `persona.ts`，star gate 相关全部不存在
+
+### 工作台重做（上游四 tab 版 + fork session-tab 融合）
+
+- **四 tab 面板**：破甲（档位卡片 + 一键切换）/ Case（假设链 + findings + evidence，带 sessionId 绑定）/ 拦截 / 关于（版本、检查更新、免责声明）——DSH 原生 token 视觉（13px tab + 2px 指示条、0.5px 边框、panel 内 style 卸载即移除）
+- **Hd 品牌图标**：胶囊与 tab 标题用内联 SVG `HelmdMark`（currentColor，与上游 README 的 helm-d-{light,dark}.svg 同源）
+- **检查更新**：`GET /api/helmd/update` 先查 GitHub Releases、失败回退 npm registry，复用代理感知传输（`net-fetch.ts`，原生 fetch 无视代理）；REPO 指向本 fork 仓库
+- **（fork 保留）会话标签栏工作台**：`conversation.view` 槽位的 helmd tab（仅 helmd-preset 会话注册）与 `TabErrorBoundary` 单标签错误隔离（Intercept Log 白屏修复）——上游面板成为该 tab 的渲染内容
+- **胶囊改用独立槽位 id `helm-d:workbench`**（上游 main e5a68f8 修复）：不再 shadow 官方 `agent-preset`，非 helmd 会话不再被顶掉官方 preset 标签；非 helmd 会话渲染 null
+
+### 工具集变更（34 → 33）
+
+- **删除**：`find_tool`（GitHub grep 薄包装，无超时不走代理，与 shell 重叠）、`llm_probe` / `llm_eval_suite`（模型评测子系统，上游 0.5.2 裁决移除，连带 `model-probe.ts` 与 `/api/helmd/eval`）
+- **新增**：`record_hypothesis` / `update_hypothesis`
+- **首轮 shell 按平台单选**：`NATIVE_SHELL`（Windows `pwsh`，其他 `bash`）——Linux 双 shell 不再触发 bootstrap 守卫暴露全量目录
+- **`read_reference` 分页**：`offset` 参数，200 行/次
+- **router 接线 playbook**：`route_task` 返回匹配 playbook 路径（`references/playbooks/{reverse,pentest,triggers}.yaml` 新增）
+
+### 构建与分发
+
+- **`build-sealed.mjs` 永远封新编译输出**：先清 `.real/` 再封 dist，且检测入口是否为 stub——v0.5.1fix 事故（把旧模块封进 payload 发出去）的防呆
+- **新增 `scripts/verify-pack.mjs`**：解封 payload.dat 断言 scripts 与真实入口存在；tarball 模式验证零明文（fork 适配：LICENSE 是 pack 自动包含文件，加入 EXPECTED）
+- **版本化安装 URL**（上游 #5 修复）：`releases/latest/download/*` 滚动地址写进 profile 依赖会让 pnpm lockfile sha512 失配（`ERR_PNPM_TARBALL_INTEGRITY`）——README 与 install.sh 全部改为 `releases/download/vX.Y.Z` 版本化地址（install.sh 用 API 解析最新 tag，可 `HELMD_VERSION` 覆盖）
+
+### 检查集（15 → 21 PASS）
+
+新增：`autonomy` / `case-session` / `client-scope`（fork 适配版）/ `no-external-mcp` / `playbook` / `profile-switch`（适配 persona.js）/ `update-check`；`api-routes` / `tool-catalog` 随新路由与 33 工具基准重写。Star gate 的 `gate-flow` 检查随门禁删除不移植。
+
+### 明确不移植
+
+- Star 全家（加固 / 弹窗 / help 文档 / gate 路由）——fork.3 已删，保持删除
+- settings 健康卡片注册（`settings.plugin.item` 槽位在 dsh 0.2.1 不存在的死代码）——旧 client 里的注册一并删除
+- `docs/design/**`、CI workflow、CONTRIBUTING/SECURITY 等工程文档——非运行时，按需另行取用
+
+- 验证：`pnpm typecheck` PASS · 系统 node 通道 checks **21 PASS** · **Electron RunAsNode 通道 checks 21 PASS 零 SKIP**（DSH NEXT 2.0.19-next / dsh 0.2.1-rc.2）· `gen-preset --check` OK（asar 宿主）· 封印 tarball `verify-pack` PASS（194 sealed files 零明文）· root shim 同步 PASS
+
 ## [0.5.1-fork.3] — 2026-10-23（fork：移除 Star 弹窗与设备流解锁 + 根地址可直接安装）
 
 - **移除 Star 门禁（操作者裁定）**：删掉整个 GitHub device-flow 解锁子系统——`src/star-gate.ts` 整文件删除（device flow 启动/轮询、`checkStarred`、`fetchLogin`、token 丢弃逻辑），`src/gate.ts` 剥离为纯 persona 注册并更名 `src/persona.ts`（`registerGate` → `registerPersona`；`applyPersonaSection` 签名与行为不变，多破甲热切换照旧）

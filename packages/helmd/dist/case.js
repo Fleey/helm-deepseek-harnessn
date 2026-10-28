@@ -2,20 +2,70 @@
 // Everything a case needs lives on disk; the in-memory map only binds
 // a session (exec.agent.id) to its active case dir for convenience.
 import { createHash } from 'node:crypto';
-import { createReadStream, existsSync } from 'node:fs';
+import { createReadStream, existsSync, mkdirSync, readFileSync, unlinkSync, writeFileSync } from 'node:fs';
 import { mkdir, copyFile, writeFile, appendFile, readFile, readdir, rename } from 'node:fs/promises';
-import { join, resolve, basename } from 'node:path';
+import { homedir } from 'node:os';
+import { basename, dirname, join, resolve } from 'node:path';
 const bindings = new Map();
+/** $DSH_HOME/storages/helmd/sessions/<sha256(sessionId)>.json */
+function sessionBindingPath(sessionId) {
+    const home = process.env.DSH_HOME ?? join(homedir(), '.dsh');
+    const key = createHash('sha256').update(sessionId).digest('hex');
+    return join(home, 'storages', 'helmd', 'sessions', `${key}.json`);
+}
+/** Read the bound case from memory, then from the session binding file. The
+ *  file survives host restarts and context compaction; without it the model
+ *  (and the workbench) would fall back to "latest open case on disk", which is
+ *  exactly the cross-session confusion the workbench used to show. */
 export function getCase(sessionId) {
-    return bindings.get(sessionId ?? '__global__');
+    const key = sessionId ?? '__global__';
+    const cached = bindings.get(key);
+    if (cached)
+        return cached;
+    if (!sessionId)
+        return undefined;
+    try {
+        const parsed = JSON.parse(readFileSync(sessionBindingPath(sessionId), 'utf8'));
+        if (parsed !== null && typeof parsed === 'object' && typeof parsed.dir === 'string') {
+            const dir = resolve(parsed.dir);
+            if (existsSync(join(dir, 'CASE.md'))) {
+                const info = {
+                    dir,
+                    name: typeof parsed.name === 'string' ? parsed.name : basename(dir),
+                    goal: typeof parsed.goal === 'string' ? parsed.goal : 'unspecified',
+                    mode: typeof parsed.mode === 'string' ? parsed.mode : 'full',
+                    route: typeof parsed.route === 'string' ? parsed.route : 'pending (route_task)',
+                };
+                bindings.set(key, info);
+                return info;
+            }
+        }
+    }
+    catch { /* no binding file / unreadable — the caller sees no active case */ }
+    return undefined;
 }
 export function bindCase(sessionId, info) {
-    bindings.set(sessionId ?? '__global__', info);
+    const key = sessionId ?? '__global__';
+    bindings.set(key, info);
+    if (!sessionId)
+        return;
+    try {
+        const path = sessionBindingPath(sessionId);
+        mkdirSync(dirname(path), { recursive: true });
+        writeFileSync(path, JSON.stringify({ sessionId, ...info, boundAt: new Date().toISOString() }, null, 2), 'utf8');
+    }
+    catch { /* best effort: the in-memory binding still works for this process */ }
 }
 export function unbindCase(sessionId) {
     const key = sessionId ?? '__global__';
     const info = bindings.get(key);
     bindings.delete(key);
+    if (sessionId) {
+        try {
+            unlinkSync(sessionBindingPath(sessionId));
+        }
+        catch { /* already absent */ }
+    }
     return info;
 }
 /** Root resolution: explicit arg > HELMD_CASES_DIR > process.cwd(). */
@@ -105,6 +155,17 @@ export async function countEvidence(caseDir) {
     const files = await readdir(join(caseDir, 'evidence')).catch(() => []);
     return files.filter((f) => /^E-\d{3}/.test(f)).length;
 }
+/** Evidence entries on disk, sorted by E-number. */
+export async function listEvidence(caseDir) {
+    const files = await readdir(join(caseDir, 'evidence')).catch(() => []);
+    return files
+        .map((file) => {
+        const match = /^(E-\d+)/.exec(file);
+        return match ? { id: match[1], file } : null;
+    })
+        .filter((entry) => entry !== null)
+        .sort((a, b) => a.id.localeCompare(b.id));
+}
 /**
  * Next evidence id for one case directory.
  *
@@ -138,6 +199,20 @@ export function resetEvidenceCounter(caseDir) {
     evidenceCounters.delete(caseDir);
 }
 export async function saveEvidence(caseDir, toolLabel, content, summary) {
+    const sha = createHash('sha256').update(content, 'utf8').digest('hex');
+    // Dedup: if an evidence file with the same content hash exists, return it.
+    const files = await readdir(join(caseDir, 'evidence')).catch(() => []);
+    for (const f of files) {
+        if (!/^E-\d{3,}-/.test(f))
+            continue;
+        const existing = await readFile(join(caseDir, 'evidence', f), 'utf8').catch(() => '');
+        const existingSha = createHash('sha256').update(existing, 'utf8').digest('hex');
+        if (existingSha === sha) {
+            const existingId = /^E-(\d{3,})-/.exec(f)?.[1];
+            if (existingId)
+                return { id: `E-${existingId}`, path: join(caseDir, 'evidence', f), sha256: sha, dedup: `E-${existingId}` };
+        }
+    }
     const id = await nextEvidenceId(caseDir);
     const safeTool = toolLabel.replace(/[^a-zA-Z0-9_-]+/g, '_').slice(0, 40) || 'output';
     const capped = content.length > 256 * 1024
@@ -146,7 +221,7 @@ export async function saveEvidence(caseDir, toolLabel, content, summary) {
     const path = join(caseDir, 'evidence', `${id}-${safeTool}.txt`);
     await writeFile(path, capped, 'utf8');
     await appendTimeline(caseDir, `${toolLabel} → ${id} — ${summary.slice(0, 80)}`);
-    return { id, path };
+    return { id, path, sha256: sha };
 }
 export async function appendTimeline(caseDir, line) {
     await appendFile(join(caseDir, 'CASE.md'), `- [${nowStamp()}] ${line}\n`, 'utf8');
@@ -162,9 +237,32 @@ export async function validateEvidenceIds(caseDir, ids) {
     const missing = ids.filter((id) => !known.includes(id));
     return { ok: missing.length === 0, missing, known };
 }
-export async function appendFinding(caseDir, title, detail, ids) {
-    await appendFile(join(caseDir, 'findings.md'), `\n## ${title}\n${detail}\nevidence: ${ids.join(', ')}\n`, 'utf8');
+export async function appendFinding(caseDir, title, detail, ids, reproCmd) {
+    const repro = reproCmd?.trim();
+    await appendFile(join(caseDir, 'findings.md'), `\n## ${title}\n${detail}\nevidence: ${ids.join(', ')}\n${repro ? `repro: ${repro}\n` : ''}`, 'utf8');
     await appendTimeline(caseDir, `FINDING — ${title} (${ids.join(', ')})`);
+}
+/** Parse findings.md into structured entries for case_status and the WebUI. */
+export async function loadFindings(caseDir) {
+    try {
+        const raw = await readFile(join(caseDir, 'findings.md'), 'utf8');
+        return raw.split(/^## /m).slice(1).map((chunk) => {
+            const lines = chunk.split('\n');
+            const title = (lines.shift() ?? '').trim();
+            const evidenceLine = lines.find((line) => /^evidence:/i.test(line)) ?? '';
+            const reproLine = lines.find((line) => /^repro:/i.test(line)) ?? '';
+            const detail = lines.filter((line) => !/^(evidence|repro):/i.test(line)).join('\n').trim();
+            return {
+                title,
+                detail: detail.slice(0, 500),
+                evidence: evidenceLine.replace(/^evidence:\s*/i, ''),
+                repro: reproLine.replace(/^repro:\s*/i, ''),
+            };
+        }).filter((finding) => finding.title !== '');
+    }
+    catch {
+        return [];
+    }
 }
 export async function closeCase(caseDir, summary) {
     // 1. Auto-sweep any loose files left in case root to evidence/
@@ -317,5 +415,61 @@ export async function sweepCaseRootFiles(caseDir) {
     }
     catch { }
     return swept;
+}
+const hypothesisCounters = new Map();
+function hypothesesPath(caseDir) {
+    return join(caseDir, 'hypotheses.json');
+}
+export async function recordHypothesis(caseDir, statement, expected, testCmd, evidenceIds = []) {
+    let count = hypothesisCounters.get(caseDir);
+    if (count === undefined) {
+        const existing = await loadHypotheses(caseDir);
+        count = existing.length;
+        hypothesisCounters.set(caseDir, count);
+    }
+    count++;
+    hypothesisCounters.set(caseDir, count);
+    const now = new Date().toISOString();
+    const h = {
+        id: `H-${String(count).padStart(3, '0')}`,
+        statement,
+        expected,
+        testCmd,
+        status: 'open',
+        evidenceIds,
+        createdAt: now,
+        updatedAt: now,
+    };
+    const all = await loadHypotheses(caseDir);
+    all.push(h);
+    await writeFile(hypothesesPath(caseDir), JSON.stringify(all, null, 2), 'utf8');
+    await appendTimeline(caseDir, `HYPOTHESIS ${h.id} — ${statement.slice(0, 80)}`);
+    return h;
+}
+export async function updateHypothesis(caseDir, id, status, observation, evidenceIds = []) {
+    const all = await loadHypotheses(caseDir);
+    const h = all.find((x) => x.id === id);
+    if (!h)
+        return undefined;
+    h.status = status;
+    h.observation = observation;
+    if (evidenceIds.length > 0)
+        h.evidenceIds = [...new Set([...h.evidenceIds, ...evidenceIds])];
+    h.updatedAt = new Date().toISOString();
+    await writeFile(hypothesesPath(caseDir), JSON.stringify(all, null, 2), 'utf8');
+    await appendTimeline(caseDir, `HYPOTHESIS ${id} → ${status} — ${observation.slice(0, 80)}`);
+    return h;
+}
+export async function loadHypotheses(caseDir) {
+    try {
+        return JSON.parse(await readFile(hypothesesPath(caseDir), 'utf8'));
+    }
+    catch {
+        return [];
+    }
+}
+export async function getOpenHypothesisCount(caseDir) {
+    const all = await loadHypotheses(caseDir);
+    return all.filter((h) => h.status === 'open').length;
 }
 //# sourceMappingURL=case.js.map

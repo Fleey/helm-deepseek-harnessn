@@ -3,9 +3,10 @@
 // a session (exec.agent.id) to its active case dir for convenience.
 
 import { createHash } from 'node:crypto'
-import { createReadStream, existsSync } from 'node:fs'
+import { createReadStream, existsSync, mkdirSync, readFileSync, unlinkSync, writeFileSync } from 'node:fs'
 import { mkdir, copyFile, writeFile, appendFile, readFile, readdir, rename } from 'node:fs/promises'
-import { join, resolve, basename } from 'node:path'
+import { homedir } from 'node:os'
+import { basename, dirname, join, resolve } from 'node:path'
 
 export interface CaseInfo {
   dir: string
@@ -17,18 +18,60 @@ export interface CaseInfo {
 
 const bindings = new Map<string, CaseInfo>()
 
+/** $DSH_HOME/storages/helmd/sessions/<sha256(sessionId)>.json */
+function sessionBindingPath(sessionId: string): string {
+  const home = process.env.DSH_HOME ?? join(homedir(), '.dsh')
+  const key = createHash('sha256').update(sessionId).digest('hex')
+  return join(home, 'storages', 'helmd', 'sessions', `${key}.json`)
+}
+
+/** Read the bound case from memory, then from the session binding file. The
+ *  file survives host restarts and context compaction; without it the model
+ *  (and the workbench) would fall back to "latest open case on disk", which is
+ *  exactly the cross-session confusion the workbench used to show. */
 export function getCase(sessionId?: string): CaseInfo | undefined {
-  return bindings.get(sessionId ?? '__global__')
+  const key = sessionId ?? '__global__'
+  const cached = bindings.get(key)
+  if (cached) return cached
+  if (!sessionId) return undefined
+  try {
+    const parsed = JSON.parse(readFileSync(sessionBindingPath(sessionId), 'utf8')) as Partial<CaseInfo> | null
+    if (parsed !== null && typeof parsed === 'object' && typeof parsed.dir === 'string') {
+      const dir = resolve(parsed.dir)
+      if (existsSync(join(dir, 'CASE.md'))) {
+        const info: CaseInfo = {
+          dir,
+          name: typeof parsed.name === 'string' ? parsed.name : basename(dir),
+          goal: typeof parsed.goal === 'string' ? parsed.goal : 'unspecified',
+          mode: typeof parsed.mode === 'string' ? parsed.mode : 'full',
+          route: typeof parsed.route === 'string' ? parsed.route : 'pending (route_task)',
+        }
+        bindings.set(key, info)
+        return info
+      }
+    }
+  } catch { /* no binding file / unreadable — the caller sees no active case */ }
+  return undefined
 }
 
 export function bindCase(sessionId: string | undefined, info: CaseInfo): void {
-  bindings.set(sessionId ?? '__global__', info)
+  const key = sessionId ?? '__global__'
+  bindings.set(key, info)
+  if (!sessionId) return
+  try {
+    const path = sessionBindingPath(sessionId)
+    mkdirSync(dirname(path), { recursive: true })
+    writeFileSync(path, JSON.stringify({ sessionId, ...info, boundAt: new Date().toISOString() }, null, 2), 'utf8')
+  } catch { /* best effort: the in-memory binding still works for this process */ }
 }
 
 export function unbindCase(sessionId?: string): CaseInfo | undefined {
   const key = sessionId ?? '__global__'
   const info = bindings.get(key)
   bindings.delete(key)
+  if (sessionId) {
+    try { unlinkSync(sessionBindingPath(sessionId)) } catch { /* already absent */ }
+  }
   return info
 }
 
@@ -135,6 +178,23 @@ export async function countEvidence(caseDir: string): Promise<number> {
   return files.filter((f) => /^E-\d{3}/.test(f)).length
 }
 
+export interface EvidenceEntry {
+  id: string
+  file: string
+}
+
+/** Evidence entries on disk, sorted by E-number. */
+export async function listEvidence(caseDir: string): Promise<EvidenceEntry[]> {
+  const files = await readdir(join(caseDir, 'evidence')).catch(() => [] as string[])
+  return files
+    .map((file) => {
+      const match = /^(E-\d+)/.exec(file)
+      return match ? { id: match[1], file } : null
+    })
+    .filter((entry): entry is EvidenceEntry => entry !== null)
+    .sort((a, b) => a.id.localeCompare(b.id))
+}
+
 /**
  * Next evidence id for one case directory.
  *
@@ -174,7 +234,19 @@ export async function saveEvidence(
   toolLabel: string,
   content: string,
   summary: string,
-): Promise<{ id: string; path: string }> {
+): Promise<{ id: string; path: string; sha256: string; dedup?: string }> {
+  const sha = createHash('sha256').update(content, 'utf8').digest('hex')
+  // Dedup: if an evidence file with the same content hash exists, return it.
+  const files = await readdir(join(caseDir, 'evidence')).catch(() => [] as string[])
+  for (const f of files) {
+    if (!/^E-\d{3,}-/.test(f)) continue
+    const existing = await readFile(join(caseDir, 'evidence', f), 'utf8').catch(() => '')
+    const existingSha = createHash('sha256').update(existing, 'utf8').digest('hex')
+    if (existingSha === sha) {
+      const existingId = /^E-(\d{3,})-/.exec(f)?.[1]
+      if (existingId) return { id: `E-${existingId}`, path: join(caseDir, 'evidence', f), sha256: sha, dedup: `E-${existingId}` }
+    }
+  }
   const id = await nextEvidenceId(caseDir)
   const safeTool = toolLabel.replace(/[^a-zA-Z0-9_-]+/g, '_').slice(0, 40) || 'output'
   const capped = content.length > 256 * 1024
@@ -183,7 +255,7 @@ export async function saveEvidence(
   const path = join(caseDir, 'evidence', `${id}-${safeTool}.txt`)
   await writeFile(path, capped, 'utf8')
   await appendTimeline(caseDir, `${toolLabel} → ${id} — ${summary.slice(0, 80)}`)
-  return { id, path }
+  return { id, path, sha256: sha }
 }
 
 export async function appendTimeline(caseDir: string, line: string): Promise<void> {
@@ -211,13 +283,44 @@ export async function appendFinding(
   title: string,
   detail: string,
   ids: string[],
+  reproCmd?: string,
 ): Promise<void> {
+  const repro = reproCmd?.trim()
   await appendFile(
     join(caseDir, 'findings.md'),
-    `\n## ${title}\n${detail}\nevidence: ${ids.join(', ')}\n`,
+    `\n## ${title}\n${detail}\nevidence: ${ids.join(', ')}\n${repro ? `repro: ${repro}\n` : ''}`,
     'utf8',
   )
   await appendTimeline(caseDir, `FINDING — ${title} (${ids.join(', ')})`)
+}
+
+export interface Finding {
+  title: string
+  detail: string
+  evidence: string
+  repro?: string
+}
+
+/** Parse findings.md into structured entries for case_status and the WebUI. */
+export async function loadFindings(caseDir: string): Promise<Finding[]> {
+  try {
+    const raw = await readFile(join(caseDir, 'findings.md'), 'utf8')
+    return raw.split(/^## /m).slice(1).map((chunk) => {
+      const lines = chunk.split('\n')
+      const title = (lines.shift() ?? '').trim()
+      const evidenceLine = lines.find((line) => /^evidence:/i.test(line)) ?? ''
+      const reproLine = lines.find((line) => /^repro:/i.test(line)) ?? ''
+      const detail = lines.filter((line) => !/^(evidence|repro):/i.test(line)).join('\n').trim()
+      return {
+        title,
+        detail: detail.slice(0, 500),
+        evidence: evidenceLine.replace(/^evidence:\s*/i, ''),
+        repro: reproLine.replace(/^repro:\s*/i, ''),
+      }
+    }).filter((finding) => finding.title !== '')
+  } catch {
+    return []
+  }
 }
 
 export async function closeCase(caseDir: string, summary?: string): Promise<void> {
@@ -375,4 +478,87 @@ export async function sweepCaseRootFiles(caseDir: string): Promise<string[]> {
     }
   } catch {}
   return swept
+}
+
+// ── Hypothesis ledger ────────────────────────────────────────────────────────
+
+export interface Hypothesis {
+  id: string
+  statement: string
+  expected: string
+  testCmd: string
+  status: 'open' | 'confirmed' | 'refuted' | 'blocked'
+  observation?: string
+  evidenceIds: string[]
+  createdAt: string
+  updatedAt: string
+}
+
+const hypothesisCounters = new Map<string, number>()
+
+function hypothesesPath(caseDir: string): string {
+  return join(caseDir, 'hypotheses.json')
+}
+
+export async function recordHypothesis(
+  caseDir: string,
+  statement: string,
+  expected: string,
+  testCmd: string,
+  evidenceIds: string[] = [],
+): Promise<Hypothesis> {
+  let count = hypothesisCounters.get(caseDir)
+  if (count === undefined) {
+    const existing = await loadHypotheses(caseDir)
+    count = existing.length
+    hypothesisCounters.set(caseDir, count)
+  }
+  count++
+  hypothesisCounters.set(caseDir, count)
+  const now = new Date().toISOString()
+  const h: Hypothesis = {
+    id: `H-${String(count).padStart(3, '0')}`,
+    statement,
+    expected,
+    testCmd,
+    status: 'open',
+    evidenceIds,
+    createdAt: now,
+    updatedAt: now,
+  }
+  const all = await loadHypotheses(caseDir)
+  all.push(h)
+  await writeFile(hypothesesPath(caseDir), JSON.stringify(all, null, 2), 'utf8')
+  await appendTimeline(caseDir, `HYPOTHESIS ${h.id} — ${statement.slice(0, 80)}`)
+  return h
+}
+
+export async function updateHypothesis(
+  caseDir: string,
+  id: string,
+  status: Hypothesis['status'],
+  observation: string,
+  evidenceIds: string[] = [],
+): Promise<Hypothesis | undefined> {
+  const all = await loadHypotheses(caseDir)
+  const h = all.find((x) => x.id === id)
+  if (!h) return undefined
+  h.status = status
+  h.observation = observation
+  if (evidenceIds.length > 0) h.evidenceIds = [...new Set([...h.evidenceIds, ...evidenceIds])]
+  h.updatedAt = new Date().toISOString()
+  await writeFile(hypothesesPath(caseDir), JSON.stringify(all, null, 2), 'utf8')
+  await appendTimeline(caseDir, `HYPOTHESIS ${id} → ${status} — ${observation.slice(0, 80)}`)
+  return h
+}
+
+export async function loadHypotheses(caseDir: string): Promise<Hypothesis[]> {
+  try {
+    return JSON.parse(await readFile(hypothesesPath(caseDir), 'utf8')) as Hypothesis[]
+  } catch { return [] }
+}
+
+export async function getOpenHypothesisCount(caseDir: string): Promise<number> {
+  const all = await loadHypotheses(caseDir)
+  return all.filter((h) => h.status === 'open').length
 }

@@ -224,6 +224,20 @@ export function readShelfTools(): ShelfToolItem[] {
   }
 }
 
+/** Last N dead-end rows for the autonomy packet (read-only, silent when absent). */
+export function deadEndsSummary(limit = 3): string {
+  try {
+    if (!existsSync(DEADENDS_MD())) return ''
+    return readFileSync(DEADENDS_MD(), 'utf8')
+      .split('\n')
+      .filter((l) => /^\|/.test(l) && !/^\|[-\s|:]+\|$/.test(l) && !/^\| (特征|工具) /.test(l))
+      .slice(-limit)
+      .join('\n')
+  } catch {
+    return ''
+  }
+}
+
 /**
  * Shelf overview + top dead-ends for the route card. Read-only: a routing card must not
  * write to a ledger, so Silent when the ledgers are absent or empty.

@@ -6,7 +6,7 @@ set -euo pipefail
 PROFILE="${1:-web}"
 DSH_HOME="${DSH_HOME:-$HOME/.dsh}"
 ACTIVATION="helmd"
-REPO="${HELMD_REPO:-ADWMC/helm-d}"
+REPO="${HELMD_REPO:-Fleey/helm-deepseek-harnessn}"
 TMPDIR="$(mktemp -d)"
 trap 'rm -rf "$TMPDIR"' EXIT
 CACHE_DIR="$DSH_HOME/.tgz-cache"
@@ -49,8 +49,8 @@ if [ "$PROFILE" = "desktop" ]; then
     echo "[desktop] package not installed yet. Install it from the app:"
     echo "  DSH NEXT -> Settings/设置 -> Plugins/插件 -> Add/添加, then pick ONE:"
     echo "    1) npm package name:  @adwmc/helm-d"
-    echo "    2) tarball URL:       https://github.com/$REPO/releases/latest/download/helmd.tgz"
-    echo "    3) github:            github:ADWMC/helm-d/tree/main/packages/helmd"
+    echo "    2) tarball URL:       https://github.com/$REPO/releases/download/vX.Y.Z/helmd.tgz (versioned; not latest/download)"
+    echo "    3) github:            github:Fleey/helm-deepseek-harnessn (bare repo URL installs the root shim)"
     echo "After the app finishes installing, re-run: $0 desktop"
     echo "(this re-derives the preset patch from the app's own dsh standard)"
     exit 0
@@ -74,8 +74,11 @@ if [ "$PROFILE" = "desktop" ]; then
   exit 0
 fi
 
-echo "[1/4] downloading latest release tarball from $REPO ..."
-# latest/download stable URL: 恒指向最新 release，免 API、免版本发现、无回退点
+echo "[1/4] downloading release tarball from $REPO ..."
+# Versioned URL (upstream issue #5): a rolling latest/download address baked
+# into a profile dependency breaks the pnpm lockfile sha512 on the next
+# release (ERR_PNPM_TARBALL_INTEGRITY). HELMD_VERSION pins the exact tag;
+# the tag list is fetched once when it is unset.
 AUTH=()
 [ -n "${GH_TOKEN:-}" ] && AUTH=(-H "Authorization: Bearer $GH_TOKEN")
 if [ -z "${GH_TOKEN:-}" ] && [ -n "${GITHUB_TOKEN:-}" ]; then
@@ -83,8 +86,18 @@ if [ -z "${GH_TOKEN:-}" ] && [ -n "${GITHUB_TOKEN:-}" ]; then
 fi
 
 TGZ_NAME="helmd.tgz"
-URL="https://github.com/$REPO/releases/latest/download/$TGZ_NAME"
-echo "  fetching latest $TGZ_NAME from $REPO (latest/download)"
+if [ -z "${HELMD_VERSION:-}" ]; then
+  echo "  resolving latest release tag (override with HELMD_VERSION=vX.Y.Z) ..."
+  HELMD_VERSION=$(curl -fsSL "${AUTH[@]}" -H "accept: application/vnd.github+json" \
+    "https://api.github.com/repos/$REPO/releases/latest" \
+    | sed -n 's/.*"tag_name"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' | head -1)
+fi
+if [ -z "${HELMD_VERSION:-}" ]; then
+  echo "  could not resolve the latest tag; set HELMD_VERSION=vX.Y.Z and retry" >&2
+  exit 1
+fi
+URL="https://github.com/$REPO/releases/download/$HELMD_VERSION/$TGZ_NAME"
+echo "  fetching $TGZ_NAME from $REPO ($HELMD_VERSION)"
 curl -fsSL "${AUTH[@]}" -L -o "$CACHE_DIR/$TGZ_NAME" "$URL"
 
 echo "[2/4] installing helmd from local tarball ..."

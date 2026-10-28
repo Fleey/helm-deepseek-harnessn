@@ -52,8 +52,18 @@ await report.check('no tool is registered twice', () => {
 })
 
 await report.check('the load-bearing tool names are all present', () => {
-  for (const name of ['begin_case', 'case_status', 'record_finding', 'save_evidence', 'end_case', 'find_tool', 'tool_memory', 'route_task', 'llm_probe']) {
+  for (const name of ['begin_case', 'case_status', 'record_finding', 'record_hypothesis', 'update_hypothesis', 'save_evidence', 'end_case', 'tool_memory', 'route_task']) {
     assert.ok(names.includes(name), `missing tool: ${name}`)
+  }
+})
+
+await report.check('the removed discovery/probe tools are not registered', () => {
+  // v0.5.2 backport: find_tool (thin GitHub grep, no timeout/proxy) and the
+  // model-evaluation pair (llm_probe / llm_eval_suite) are gone with their
+  // modules — external discovery goes through the shell, model security
+  // through llm_sim. helmd_unlock went with the fork's star-gate removal.
+  for (const name of ['find_tool', 'llm_probe', 'llm_eval_suite', 'helmd_unlock']) {
+    assert.ok(!names.includes(name), `obsolete tool still registered: ${name}`)
   }
 })
 

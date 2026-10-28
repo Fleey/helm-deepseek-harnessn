@@ -17,6 +17,8 @@ export interface ShelfToolItem {
  * web client can dynamically display the real installed tools on the shelf.
  */
 export declare function readShelfTools(): ShelfToolItem[];
+/** Last N dead-end rows for the autonomy packet (read-only, silent when absent). */
+export declare function deadEndsSummary(limit?: number): string;
 /**
  * Shelf overview + top dead-ends for the route card. Read-only: a routing card must not
  * write to a ledger, so Silent when the ledgers are absent or empty.

@@ -1,6 +1,6 @@
 {
   "name": "helmd",
-  "version": "0.5.1",
+  "version": "0.5.2-fork.1",
   "private": true,
   "type": "module",
   "main": "packages/helmd/dist/health.js",

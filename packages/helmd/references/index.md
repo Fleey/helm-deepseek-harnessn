@@ -11,6 +11,14 @@
 - [toolbox/network-egress.md](toolbox/network-egress.md) — 出站通道：本机代理发现与直连回退（不预设端口，换机器可用）
 - [evidence/reporting.md](evidence/reporting.md) — 标准化证据链与分析报告输出模板
 
+## Playbooks（阶段建议，非硬性门禁）
+
+- [playbooks/reverse.yaml](playbooks/reverse.yaml) — 逆向阶段建议：入库 / 风险面 / 结构 / 假设 / 报告
+- [playbooks/pentest.yaml](playbooks/pentest.yaml) — 渗透阶段建议：范围 / 侦察 / 面 / 测试 / 报告
+- [playbooks/triggers.yaml](playbooks/triggers.yaml) — 信号 → 假设 → 测试 → 参考 的触发表
+
+`route_task` 返回匹配的 playbook 路径，`case_status` 的 `[autonomy]` 段也会带上；它们只给建议，不是门禁。
+
 ## 垂直领域索引
 
 | 领域 | 索引路径 | 核心覆盖范围与触发信号 |

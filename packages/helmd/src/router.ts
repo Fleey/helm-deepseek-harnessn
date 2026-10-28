@@ -8,6 +8,7 @@ import { readTextSeam, assertWithinRoot } from './seam.js'
 import { readSealedReference } from './sealed-refs.js'
 import { getLevel, setLevel, normalizeLevel, renderContract } from './mode.js'
 import { shelfSummary } from './ledger.js'
+import { playbookFor } from './autonomy.js'
 import { submitAdvisory, renderAdvisoryStats } from './advisory.js'
 import { sessionEvents, type AgentLike } from './session-log.js'
 
@@ -30,7 +31,7 @@ const catalog: Record<string, string> = {
   native: 'PE/ELF/Mach-O/shellcode -> native_reference + references/native/',
   protocol: 'PCAP/TCP/UDP/gRPC/Protobuf -> pcap_parse + references/protocol/',
   malware: 'C2/persistence/IOC/sample -> ioc_extract/yara_gen + references/malware/',
-  ai: 'prompt/model security -> llm_probe + references/ai-security/',
+  ai: 'prompt/model security -> llm_sim + references/ai-security/',
   evidence: 'case 工作区/报告/存证 -> begin_case + case_status + references/evidence/',
   // 信号级路由 (signal -> tool -> reference)
   apk: 'APK/AAB/DEX -> apk_fingerprint -> android',
@@ -41,7 +42,7 @@ const catalog: Record<string, string> = {
   pcap: 'PCAP/TCP/UDP -> pcap_parse -> protocol',
   har: 'HAR/request -> parse_har -> protocol',
   ioc: 'IOC/hash/domain -> ioc_extract/yara_gen -> malware',
-  llm: 'model evaluation / prompt security -> llm_probe -> ai',
+  llm: 'model security / prompt injection -> llm_sim -> ai',
 }
 
 // 确定性路由表（dhicoc master-route 契约：先路由后动手，PRIMARY + 一句依据）
@@ -77,7 +78,7 @@ const ROUTE_TABLE: Route[] = [
 const ROUTE_TOOL: Record<string, string> = {
   apk: 'apk_fingerprint', shell: 'detect_packer', strings: 'scan_strings', crypto: 'encoding_detect',
   pcap: 'pcap_parse', har: 'parse_har', ioc: 'ioc_extract', malware: 'yara_gen',
-  llm: 'llm_probe', tree: 'triage_artifact', evidence: 'begin_case',
+  llm: 'llm_sim', tree: 'triage_artifact', evidence: 'begin_case',
   tools: 'skill_catalog', status: 'case_status',
 }
 
@@ -134,6 +135,7 @@ export function renderRoute(hint: string): string {
   } catch {
     // advisory ledger unavailable — card stays clean
   }
+  card += `\nplaybook: ${playbookFor(hint)} (stage suggestions; not a gate)`
   return card
 }
 
@@ -216,28 +218,37 @@ export function registerRouterTools(ctx: Context): void {
 
   ctx.tools.register(defineTool({
     name: 'read_reference',
-    description: 'Read a reference doc on demand; apply your own judgment. Use "index.md" for master index.',
+    description: 'Read a reference doc on demand; apply your own judgment. Use "index.md" for master index. Output limited to 200 lines per call — use offset to continue.',
     parameters: {
-      path: { type: 'string', required: true, description: 'Path relative to references/ (e.g. "index.md", "android/index.md", "native/license-bypass-workflow.md").' },
+      path: { type: 'string', required: true, description: 'Path relative to references/.' },
+      offset: { type: 'number', description: 'Line offset for pagination (default 0).' },
     },
     output: { schema: { type: 'string' }, render: (_a: unknown, v: string) => [{ type: 'text', text: v }] },
-    async execute(args: { path: string }) {
-      // Sealed bundle first (installed packages ship references.dat, no
-      // plaintext references/ directory); plaintext dir is the repo dev path.
+    async execute(args: { path: string; offset?: number }) {
+      const MVI_MAX = 200
+      const offset = Math.max(0, args.offset ?? 0)
+      const mvi = (text: string): string => {
+        const lines = text.split('\n')
+        if (lines.length <= MVI_MAX) return text
+        const slice = lines.slice(offset, offset + MVI_MAX)
+        const header = offset > 0 ? `[… continued from line ${offset + 1}]\n` : ''
+        const footer = `\n[truncated: ${lines.length} total lines, showing ${offset + 1}–${offset + slice.length}. read_reference(path, offset=${offset + MVI_MAX}) to continue]`
+        return header + slice.join('\n') + footer
+      }
       const rel = (args.path ?? '').replace(/\\/g, '/').replace(/^\//, '')
       const sealed = readSealedReference(rel)
-      if (sealed !== undefined) return sealed
+      if (sealed !== undefined) return mvi(sealed)
       const sealedIndex = readSealedReference(rel ? rel.replace(/\/?$/, '/index.md') : 'index.md')
-      if (sealedIndex !== undefined) return sealedIndex
+      if (sealedIndex !== undefined) return mvi(sealedIndex)
       const target = resolveReferenceFile(refRoot, args.path)
       if (target) {
         assertWithinRoot(target, refRoot)
-        return await readTextSeam(ctx, target)
+        return mvi(await readTextSeam(ctx, target))
       }
       const raw = resolve(refRoot, args.path ?? '')
       assertWithinRoot(raw, refRoot)
       try {
-        return await readTextSeam(ctx, raw)
+        return mvi(await readTextSeam(ctx, raw))
       } catch {
         return [
           `参考文档未找到: "${args.path}"`,

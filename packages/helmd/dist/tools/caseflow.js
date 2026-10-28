@@ -1,18 +1,19 @@
 // Case lifecycle tools: begin_case / case_status / record_finding / save_evidence /
-// end_case — every one of them reads or writes the session's active case. External tool
-// discovery (find_tool) lives in ./tool-discovery.ts; it touches no case state.
+// end_case — every one of them reads or writes the session's active case.
 import { defineTool } from '@deepseek-ai/dsh-tools';
 import { existsSync } from 'node:fs';
-import { resolve, join } from 'node:path';
-import { bindCase, getCase, unbindCase, createCaseDir, loadCaseMd, closeCase, validateEvidenceIds, appendFinding, saveEvidence, countEvidence, casesRoot, findOpenCaseOnDisk, loadCaseInfoFromDisk, auditCasesRoot, listLooseFilesInCase, } from '../case.js';
+import { resolve } from 'node:path';
+import { bindCase, getCase, unbindCase, createCaseDir, loadCaseMd, closeCase, validateEvidenceIds, appendFinding, saveEvidence, countEvidence, casesRoot, findOpenCaseOnDisk, loadCaseInfoFromDisk, auditCasesRoot, listLooseFilesInCase, recordHypothesis, updateHypothesis, loadHypotheses, getOpenHypothesisCount, listEvidence, loadFindings, } from '../case.js';
 import { getLevel } from '../mode.js';
 import { renderAdvisoryStats } from '../advisory.js';
 import { getStreamInterceptionStats } from '../llm-stream-hook.js';
+import { deadEndsSummary } from '../ledger.js';
+import { renderAutonomyPacket } from '../autonomy.js';
 function resolveWorkspaceRoot(root, exec) {
     return root?.trim() || exec?.agent?.session?.header?.cwd || exec?.agent?.cwd || exec?.agent?.workspace;
 }
 const RULES = [
-    '1. Built-in tools first; missing capability → find_tool() (GitHub); custom scripts LAST, only in <case>/scripts/.',
+    '1. Built-in tools first; missing capability → use shell (gh/curl) to find and install it, then tool_memory(register); custom scripts LAST, only in <case>/scripts/.',
     '2. External CLI output → save_evidence(label, ...) before citing it.',
     '3. Parameters come from prior tool output in evidence/. Findings cite E ids via record_finding.',
     '4. Resume after compaction → case_status(); before compaction, bring the CASE.md `## resume` block up to date.',
@@ -135,6 +136,17 @@ export function registerCaseflowTools(ctx) {
             const looseNotice = loose.length > 0
                 ? `\n\n[Warning] ${loose.length} loose unorganized file(s) in case root (will auto-archive to evidence/ on end_case): ${loose.join(', ')}`
                 : '';
+            const hypotheses = await loadHypotheses(active.dir);
+            const findings = await loadFindings(active.dir);
+            const evidence = await listEvidence(active.dir);
+            const packet = renderAutonomyPacket({
+                mode: getLevel(exec?.agent?.id),
+                goal: active.goal,
+                hypotheses,
+                findings,
+                evidence,
+                deadEnds: deadEndsSummary(3),
+            });
             return [
                 `case: ${active.name}`,
                 `dir: ${active.dir}`,
@@ -145,6 +157,8 @@ export function registerCaseflowTools(ctx) {
                 timeline || '  (empty)',
                 looseNotice,
                 ...(resume ? ['', resume] : []),
+                '',
+                packet,
                 '',
                 RULES,
                 ...(renderAdvisoryStats() ? ['', renderAdvisoryStats()] : []),
@@ -157,11 +171,13 @@ export function registerCaseflowTools(ctx) {
     ctx.tools.register(defineTool({
         name: 'record_finding',
         description: 'Record a conclusion into findings.md. Every evidence id you cite is validated against the evidence/ directory — ' +
-            'citing ids that do not exist is rejected. This is how conclusions stay guess-free.',
+            'citing ids that do not exist is rejected. Pass repro_cmd (a command that reproduces the result); ' +
+            'DEEP mode requires it before the case can close.',
         parameters: {
             title: { type: 'string', required: true },
             detail: { type: 'string', required: true },
             evidence_ids: { type: 'array', items: { type: 'string' }, required: true, description: 'e.g. ["E-002","E-005"]' },
+            repro_cmd: { type: 'string', required: true, description: 'Reusable command/tool call that reproduces the conclusion.' },
         },
         output: { schema: { type: 'string' }, render: (_a, v) => [{ type: 'text', text: v }] },
         async execute(args, exec) {
@@ -176,14 +192,83 @@ export function registerCaseflowTools(ctx) {
                     'Cite only ids that exist in evidence/. Run the tool that produces the proof first.',
                 ].join('\n');
             }
-            await appendFinding(active.dir, args.title, args.detail, args.evidence_ids ?? []);
-            return `finding recorded: ${args.title} [${(args.evidence_ids ?? []).join(', ')}]`;
+            if ((args.repro_cmd ?? '').trim() === '') {
+                return 'REJECTED — repro_cmd is required: a finding without a reproducible command is not a conclusion.';
+            }
+            await appendFinding(active.dir, args.title, args.detail, args.evidence_ids ?? [], args.repro_cmd);
+            return `finding recorded: ${args.title} [${(args.evidence_ids ?? []).join(', ')}]\nrepro: ${args.repro_cmd.trim()}`;
+        },
+    }));
+    ctx.tools.register(defineTool({
+        name: 'record_hypothesis',
+        description: 'State a testable hypothesis before running tools. Forces you to think: what do you expect to find, ' +
+            'and how will you verify it? Returns H-xxx. Use update_hypothesis after testing.',
+        parameters: {
+            statement: { type: 'string', required: true, description: 'What you think is true.' },
+            expected: { type: 'string', required: true, description: 'What you expect to observe if true.' },
+            test_cmd: { type: 'string', required: true, description: 'Shell command or tool call to verify.' },
+            evidence_ids: { type: 'array', items: { type: 'string' }, description: 'Supporting evidence already collected.' },
+        },
+        output: { schema: { type: 'string' }, render: (_a, v) => [{ type: 'text', text: v }] },
+        async execute(args, exec) {
+            const active = getCase(exec?.agent?.id);
+            if (!active)
+                return 'No active case. begin_case() first — hypotheses need a case.';
+            const all = await loadHypotheses(active.dir);
+            const open = all.filter((h) => h.status === 'open');
+            if (open.length >= 1) {
+                return [
+                    `REJECTED — ${open.length} open hypothesis already exists: ${open.map((h) => h.id).join(', ')}.`,
+                    'Resolve it first with update_hypothesis before creating a new one.',
+                ].join('\n');
+            }
+            const h = await recordHypothesis(active.dir, args.statement, args.expected, args.test_cmd, args.evidence_ids ?? []);
+            return [
+                `hypothesis ${h.id} recorded (open):`,
+                `  statement: ${h.statement}`,
+                `  expected:  ${h.expected}`,
+                `  test_cmd:  ${h.testCmd}`,
+                `Run the test, then update_hypothesis(id="${h.id}", status=..., observation=..., evidence_ids=[...])`,
+            ].join('\n');
+        },
+    }));
+    ctx.tools.register(defineTool({
+        name: 'update_hypothesis',
+        description: 'Resolve a hypothesis after testing. Status must be confirmed / refuted / blocked. ' +
+            'confirmed and refuted require an observation and at least one evidence id.',
+        parameters: {
+            id: { type: 'string', required: true, description: 'Hypothesis id, e.g. "H-001".' },
+            status: { type: 'string', required: true, description: 'confirmed | refuted | blocked.' },
+            observation: { type: 'string', required: true, description: 'What you actually observed.' },
+            evidence_ids: { type: 'array', items: { type: 'string' }, description: 'Evidence supporting the verdict.' },
+        },
+        output: { schema: { type: 'string' }, render: (_a, v) => [{ type: 'text', text: v }] },
+        async execute(args, exec) {
+            const active = getCase(exec?.agent?.id);
+            if (!active)
+                return 'No active case.';
+            if (!['confirmed', 'refuted', 'blocked'].includes(args.status)) {
+                return `REJECTED — status must be confirmed | refuted | blocked, got "${args.status}".`;
+            }
+            if (args.status !== 'blocked' && (args.evidence_ids ?? []).length === 0) {
+                return `REJECTED — ${args.status} requires at least one evidence id. Run the test first.`;
+            }
+            if (args.evidence_ids && args.evidence_ids.length > 0) {
+                const check = await validateEvidenceIds(active.dir, args.evidence_ids);
+                if (!check.ok) {
+                    return `REJECTED — unknown evidence ids: ${check.missing.join(', ')}. Known: ${check.known.join(', ') || '(none)'}.`;
+                }
+            }
+            const h = await updateHypothesis(active.dir, args.id, args.status, args.observation, args.evidence_ids ?? []);
+            if (!h)
+                return `REJECTED — hypothesis ${args.id} not found.`;
+            return `hypothesis ${h.id} → ${h.status}. ${h.observation?.slice(0, 120) ?? ''}`;
         },
     }));
     ctx.tools.register(defineTool({
         name: 'end_case',
         description: 'Close the active case: stamps CASE.md completed and unbinds the session. ' +
-            'In deep mode at least one recorded finding is required before closing. ' +
+            'In deep mode at least one recorded finding is required, and every finding must carry repro_cmd. ' +
             'Closing also requires at least one evidence entry on disk, unless the summary states why there is none ' +
             'with "(no-evidence: …)".',
         parameters: { summary: { type: 'string', description: 'One-line closing summary.' } },
@@ -194,11 +279,28 @@ export function registerCaseflowTools(ctx) {
                 return 'No active case bound to this session.';
             const mode = getLevel(exec?.agent?.id);
             if (mode === 'deep') {
-                const fm = await import('node:fs/promises').then((m) => m.readFile(join(active.dir, 'findings.md'), 'utf8'));
-                const count = (fm.match(/^## /gm) ?? []).length;
-                if (count === 0) {
+                const findings = await loadFindings(active.dir);
+                if (findings.length === 0) {
                     return 'DEEP mode requires at least one record_finding before end_case. Evidence chain incomplete.';
                 }
+                const missingRepro = findings.filter((finding) => (finding.repro ?? '').trim() === '');
+                if (missingRepro.length > 0) {
+                    return [
+                        `REJECTED — DEEP mode requires repro_cmd on every finding: ${missingRepro.map((f) => f.title).join(', ')}.`,
+                        'Re-record the finding with repro_cmd (a command that reproduces it) before closing.',
+                    ].join('\n');
+                }
+            }
+            // Hypothesis gate: all hypotheses must be resolved before closing.
+            const openCount = await getOpenHypothesisCount(active.dir);
+            if (openCount > 0) {
+                const all = await loadHypotheses(active.dir);
+                const open = all.filter((h) => h.status === 'open');
+                return [
+                    `REJECTED — ${openCount} open hypothesis(es) must be resolved before closing:`,
+                    ...open.map((h) => `  ${h.id}: ${h.statement} (test: ${h.testCmd})`),
+                    'Use update_hypothesis(id, status, observation, evidence_ids) to resolve each one.',
+                ].join('\n');
             }
             // Completion is an external fact, not a self-report: a closed case must point at
             // evidence on disk, or say in words why it has none.

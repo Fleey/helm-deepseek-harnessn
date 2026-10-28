@@ -5,6 +5,10 @@ export interface CaseInfo {
     mode: string;
     route: string;
 }
+/** Read the bound case from memory, then from the session binding file. The
+ *  file survives host restarts and context compaction; without it the model
+ *  (and the workbench) would fall back to "latest open case on disk", which is
+ *  exactly the cross-session confusion the workbench used to show. */
 export declare function getCase(sessionId?: string): CaseInfo | undefined;
 export declare function bindCase(sessionId: string | undefined, info: CaseInfo): void;
 export declare function unbindCase(sessionId?: string): CaseInfo | undefined;
@@ -21,6 +25,12 @@ export declare function createCaseDir(opts: {
 }): Promise<CaseInfo>;
 /** Evidence files present for a case (E-xxx entries), counted from disk. */
 export declare function countEvidence(caseDir: string): Promise<number>;
+export interface EvidenceEntry {
+    id: string;
+    file: string;
+}
+/** Evidence entries on disk, sorted by E-number. */
+export declare function listEvidence(caseDir: string): Promise<EvidenceEntry[]>;
 /** Next E-number = max existing + 1; the scan happens once per case directory. */
 export declare function nextEvidenceId(caseDir: string): Promise<string>;
 /** Drop a case directory's counter (called when its case closes). */
@@ -28,6 +38,8 @@ export declare function resetEvidenceCounter(caseDir: string): void;
 export declare function saveEvidence(caseDir: string, toolLabel: string, content: string, summary: string): Promise<{
     id: string;
     path: string;
+    sha256: string;
+    dedup?: string;
 }>;
 export declare function appendTimeline(caseDir: string, line: string): Promise<void>;
 export declare function loadCaseMd(caseDir: string): Promise<string>;
@@ -36,7 +48,15 @@ export declare function validateEvidenceIds(caseDir: string, ids: string[]): Pro
     missing: string[];
     known: string[];
 }>;
-export declare function appendFinding(caseDir: string, title: string, detail: string, ids: string[]): Promise<void>;
+export declare function appendFinding(caseDir: string, title: string, detail: string, ids: string[], reproCmd?: string): Promise<void>;
+export interface Finding {
+    title: string;
+    detail: string;
+    evidence: string;
+    repro?: string;
+}
+/** Parse findings.md into structured entries for case_status and the WebUI. */
+export declare function loadFindings(caseDir: string): Promise<Finding[]>;
 export declare function closeCase(caseDir: string, summary?: string): Promise<void>;
 export interface CaseSummary {
     name: string;
@@ -63,3 +83,18 @@ export declare function loadCaseInfoFromDisk(caseDirOrName: string, root?: strin
 export declare function listLooseFilesInCase(caseDir: string): Promise<string[]>;
 /** Auto-sweep unorganized files from case root into evidence/. */
 export declare function sweepCaseRootFiles(caseDir: string): Promise<string[]>;
+export interface Hypothesis {
+    id: string;
+    statement: string;
+    expected: string;
+    testCmd: string;
+    status: 'open' | 'confirmed' | 'refuted' | 'blocked';
+    observation?: string;
+    evidenceIds: string[];
+    createdAt: string;
+    updatedAt: string;
+}
+export declare function recordHypothesis(caseDir: string, statement: string, expected: string, testCmd: string, evidenceIds?: string[]): Promise<Hypothesis>;
+export declare function updateHypothesis(caseDir: string, id: string, status: Hypothesis['status'], observation: string, evidenceIds?: string[]): Promise<Hypothesis | undefined>;
+export declare function loadHypotheses(caseDir: string): Promise<Hypothesis[]>;
+export declare function getOpenHypothesisCount(caseDir: string): Promise<number>;
