@@ -32,7 +32,7 @@ submitAdvisory(sessionId, {
   key: 'recovery-on-refusal',        // 同 session 同 key 只留一条
   tier: 'mandatory',                 // mandatory 永不降频；recommended / hint 会
   content: '<要注入的正文>',
-  proof: { kind: 'tool_called', tools: ['llm_eval_suite'] },  // 采纳签名
+  proof: { kind: 'tool_called', tools: ['llm_sim'] },  // 采纳签名
   withinTurns: 1,                    // 超过 N 个 assistant 回合仍未命中 → ignored
   trackOnly: false,                  // 设计量型就置 true
   adaptive: false,                   // 设"先教后测型"就置 true（达标后渲染退场、计量继续）

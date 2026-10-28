@@ -5,7 +5,7 @@ import { registerLlmStreamHook } from './llm-stream-hook.js';
 import { applyPersistenceWrap } from './persist.js';
 import { registerRouterTools } from './router.js';
 import { registerCaseflowTools } from './tools/caseflow.js';
-import { registerToolDiscoveryTools } from './tools/tool-discovery.js';
+import { registerCaseContext } from './case-context.js';
 import { registerAndroidTools } from './tools/android.js';
 import { registerWebTools } from './tools/web.js';
 import { registerNativeTools } from './tools/native.js';
@@ -16,9 +16,13 @@ import { registerEvidenceTools } from './tools/evidence.js';
 import { registerToolboxTools } from './tools/toolbox.js';
 import { registerLedgerTool } from './ledger.js';
 import { registerIcaContext } from './ica-context.js';
-import { registerPersona } from './persona.js';
+import { registerPersona, registerBoost } from './persona.js';
 export const name = 'helmd';
 export const inject = ['tools', 'systemPrompt'];
+/** The host's native shell tool on this platform. Selecting one (instead of
+ *  listing both) keeps the bootstrap anchor unambiguous when a machine has
+ *  both bash and pwsh installed — on Linux, `win32` never enters the list. */
+const NATIVE_SHELL = process.platform === 'win32' ? 'pwsh' : 'bash';
 export function apply(ctx) {
     // Description wash FIRST: normalize any "denial is final" tool wording before
     // any domain tool registers (defensive layer — current helmd descriptions are clean).
@@ -30,9 +34,9 @@ export function apply(ctx) {
         // ICA context: behavior demonstrations as durable user-role snapshot (L2).
         // Registered before everything else — it needs systemPrompt only.
         registerIcaContext(ctx);
-        // Bootstrap filter: first request only exposes shell + read
+        // Bootstrap filter: first request only exposes the platform shell + read
         applyBootstrapFilter(ctx, {
-            shellTools: ['bash', 'pwsh'],
+            shellTools: [NATIVE_SHELL],
             commonTools: ['read'],
             promoteOn: 'either',
         });
@@ -45,8 +49,9 @@ export function apply(ctx) {
         registerLedgerTool(ctx);
         // Case lifecycle: begin_case / case_status / record_finding / save_evidence / end_case
         registerCaseflowTools(ctx);
-        // External tool discovery: find_tool (GitHub + local shelf)
-        registerToolDiscoveryTools(ctx);
+        // Per-turn [helm-d case] section: the model sees the case it is bound to,
+        // not just a tool it may forget to call after compaction.
+        registerCaseContext(ctx);
         // Domain tools
         registerAndroidTools(ctx);
         registerWebTools(ctx);
@@ -63,11 +68,19 @@ export function apply(ctx) {
     }
     // Persona LAST: the systemPrompt service is warm by now, and a persona
     // registration failure must not take down the rest of the plugin.
+    // Boost (sealed tail override block) registers after the persona at the
+    // highest order so it survives long contexts and multi-turn drift.
     try {
         registerPersona(ctx);
     }
     catch (error) {
         console.warn('[helmd] persona registration failed:', error instanceof Error ? error.message : error);
+    }
+    try {
+        registerBoost(ctx);
+    }
+    catch (error) {
+        console.warn('[helmd] boost registration failed:', error instanceof Error ? error.message : error);
     }
 }
 //# sourceMappingURL=index.js.map

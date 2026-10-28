@@ -18,6 +18,8 @@ export interface Catalog {
   version: number
   activeId: string
   profiles: Profile[]
+  /** Sealed tail override block (presets/boost.txt), unsealed in memory. */
+  boost?: string
 }
 
 /** Walk up from this module to the package root. Modules live either at
@@ -43,6 +45,7 @@ export function loadCatalog(): Catalog {
     version: number
     activeId: string
     profiles: Array<{ id: string; name: string; sealed: string }>
+    boost?: string
   }
   cached = {
     version: raw.version,
@@ -53,8 +56,14 @@ export function loadCatalog(): Catalog {
       sealed: p.sealed,
       body: unseal(p.sealed),
     })),
+    ...(raw.boost ? { boost: unseal(raw.boost) } : {}),
   }
   return cached
+}
+
+/** Tail override block (sealed boost.txt). Undefined when the build has none. */
+export function boostBody(): string | undefined {
+  return loadCatalog().boost
 }
 
 /** Profile body by id; falls back to the active profile. */
@@ -62,10 +71,4 @@ export function profileBody(id?: string): string | undefined {
   const catalog = loadCatalog()
   const wanted = id ?? catalog.activeId
   return catalog.profiles.find((p) => p.id === wanted)?.body
-}
-
-export function profileName(id?: string): string | undefined {
-  const catalog = loadCatalog()
-  const wanted = id ?? catalog.activeId
-  return catalog.profiles.find((p) => p.id === wanted)?.name
 }

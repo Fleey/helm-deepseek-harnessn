@@ -4,29 +4,74 @@
 // Routes:
 //   GET /api/helmd/health   → boot-time preset health verdict (host plane)
 //   GET /api/helmd/tools    → dynamic tool list from ctx.tools registry
-//   GET /api/helmd/eval     → model evaluation records + discovered models
 //   GET /api/helmd/intercept → stream interception stats (count, last time, snippet)
+//   GET /api/helmd/profile   → armor profile catalog + active id
+//   POST /api/helmd/profile  → hot-switch the active armor profile {"id":"..."}
+//   GET /api/helmd/update    → installed vs latest release (GitHub → npm)
+//
+// (fork: the /gate family is gone with the star gate; /eval is gone with
+// model-probe — the model-evaluation subsystem was removed upstream in 0.5.2.)
 
 import type { Context } from '@deepseek-ai/cordis'
 import { homedir } from 'node:os'
 import { join } from 'node:path'
 import fs from 'node:fs'
-import { discoverAvailableModels } from './model-probe.js'
+import { switchProfile } from './persona.js'
+import { profileStatus } from './profile.js'
+import { checkForUpdate } from './update-check.js'
+import { listCasesOnDisk, loadHypotheses, countEvidence, loadFindings, listEvidence, getCase } from './case.js'
 
 const ROUTE_BASE = '/api/helmd'
 
-/** Read model evaluation records (last N records). */
-async function readProbeLedger(limit = 20): Promise<Array<Record<string, unknown>>> {
-  try {
-    const dshHome = process.env.DSH_HOME?.trim() || join(homedir(), '.dsh')
-    const ledgerPath = join(process.env.HELMD_TOOLS_DIR || join(dshHome, 'helmd-tools'), 'model-probes.jsonl')
-    const { readFile } = await import('node:fs/promises')
-    const raw = await readFile(ledgerPath, 'utf8')
-    const lines = raw.split('\n').filter(l => l.trim())
-    return lines.slice(-limit).map(l => {
-      try { return JSON.parse(l) } catch { return { parse_error: l.slice(0, 100) } }
+/** An error carrying the HTTP status the route should answer with. */
+class HttpError extends Error {
+  constructor(readonly status: number, message: string) {
+    super(message)
+  }
+}
+
+/** Read one small JSON body (localhost workbench calls; 8 KiB is generous). */
+function readJsonBody(req: unknown, limit = 8192): Promise<unknown> {
+  return new Promise((resolve, reject) => {
+    const stream = req as { on?: (event: string, cb: (arg: never) => void) => void } | null | undefined
+    if (stream === null || stream === undefined || typeof stream.on !== 'function') {
+      reject(new HttpError(400, 'request body unavailable'))
+      return
+    }
+    let size = 0
+    const chunks: Buffer[] = []
+    stream.on('data', (chunk: Buffer | string) => {
+      const buf = typeof chunk === 'string' ? Buffer.from(chunk) : chunk
+      size += buf.length
+      if (size > limit) {
+        reject(new HttpError(413, `request body exceeds ${limit} bytes`))
+        return
+      }
+      chunks.push(buf)
     })
-  } catch { return [] }
+    stream.on('end', () => {
+      try {
+        const text = Buffer.concat(chunks).toString('utf8')
+        resolve(text.trim() === '' ? undefined : JSON.parse(text))
+      } catch {
+        reject(new HttpError(400, 'body must be JSON: {"id":"<profile>"}'))
+      }
+    })
+    stream.on('error', (error: Error) => reject(new HttpError(400, error.message)))
+  })
+}
+
+/** Read one query parameter from the request URL (the workbench passes sessionId). */
+function queryParam(req: unknown, name: string): string | undefined {
+  const url = String((req as { url?: unknown } | null | undefined)?.url ?? '')
+  const q = url.indexOf('?')
+  if (q < 0) return undefined
+  try {
+    const value = new URLSearchParams(url.slice(q + 1)).get(name)
+    return value !== null && value.trim() !== '' ? value.trim() : undefined
+  } catch {
+    return undefined
+  }
 }
 
 /** Read stream intercept stats from the llm-stream-hook's in-memory counters. */
@@ -55,25 +100,31 @@ export function registerHelmdApi(ctx: Context, getHealth?: () => unknown): void 
 
   const seen = new Set<string>()
 
-  function get(path: string, handler: () => Promise<unknown> | unknown): void {
+  /** Register one exact route; the handler receives the request so a single
+   *  path can branch on method (the host route table keys on path only). */
+  function route(path: string, handler: (req: any) => Promise<unknown> | unknown): void {
     const routeKey = 'exact\u0000' + path
     if (seen.has(routeKey)) return
     seen.add(routeKey)
     webServer.register({
       kind: 'exact',
       path,
-      handler: async (_req: any, res: any) => {
-        res.statusCode = 200
+      handler: async (req: any, res: any) => {
         res.setHeader('content-type', 'application/json')
         try {
-          const data = await handler()
+          const data = await handler(req)
+          res.statusCode = 200
           res.end(JSON.stringify({ ok: true, data }))
         } catch (e) {
-          res.statusCode = 500
+          res.statusCode = e instanceof HttpError ? e.status : 500
           res.end(JSON.stringify({ ok: false, error: e instanceof Error ? e.message : String(e) }))
         }
       },
     })
+  }
+
+  function get(path: string, handler: (req: any) => Promise<unknown> | unknown): void {
+    route(path, (req) => handler(req))
   }
 
   // Boot-time health verdict, evaluated once by the host plane (health.ts).
@@ -83,6 +134,10 @@ export function registerHelmdApi(ctx: Context, getHealth?: () => unknown): void 
     get(`${ROUTE_BASE}/health`, () => getHealth())
   }
 
+  // On-demand release check. Network failures come back in `error`, not 500,
+  // so the About tab can render the reason and the Releases link.
+  get(`${ROUTE_BASE}/update`, () => checkForUpdate())
+
   // Dynamic tool list from the live ctx.tools registry.
   // schemas() is ToolRuntime's public enumeration of the global view; the
   // layer fields behind it are private and hold the host's shadowing rules.
@@ -91,34 +146,82 @@ export function registerHelmdApi(ctx: Context, getHealth?: () => unknown): void 
     return tools.schemas().map((schema) => schema.name).sort()
   })
 
-  // Model evaluation records and discovered model configuration.
-  get(`${ROUTE_BASE}/eval`, async () => {
-    const records = await readProbeLedger(20)
-    const rounds = records.map((r, i) => ({
-      round: i + 1,
-      strategy: r.strategy ?? 'baseline',
-      classification: r.classification ?? 'empty',
-      status: r.status ?? 0,
-      elapsedMs: r.elapsedMs ?? 0,
-      model: r.model ?? 'unknown',
-      timestamp: r.timestamp ?? null,
-    }))
-    let availableModels: Array<{ id: string; provider: string; hasKey: boolean }> = []
-    try {
-      availableModels = (await discoverAvailableModels(ctx)).map(m => ({
-        id: m.id, provider: m.provider, hasKey: m.hasKey,
-      }))
-    } catch {}
-
-    return {
-      rounds, total: records.length,
-      availableModels,
-    }
-  })
-
   // Stream interception stats
   get(`${ROUTE_BASE}/intercept`, () => {
     return getInterceptStats()
+  })
+
+  // Armor profile switch. GET enumerates the sealed catalog and marks the
+  // active entry; POST swaps the live persona section (no host restart).
+  route(`${ROUTE_BASE}/profile`, async (req) => {
+    const method = String(req?.method ?? 'GET').toUpperCase()
+    if (method !== 'POST') return profileStatus()
+    // A cross-origin fetch cannot set this header without a CORS preflight we
+    // never answer; a plain form cannot send JSON. That keeps a drive-by page
+    // from flipping the operator's persona.
+    const contentType = String(req?.headers?.['content-type'] ?? '')
+    if (!/^application\/json\b/i.test(contentType)) {
+      throw new HttpError(415, 'content-type must be application/json')
+    }
+    const body = await readJsonBody(req)
+    const id = (body as { id?: unknown } | undefined)?.id
+    if (typeof id !== 'string' || id.trim() === '') {
+      throw new HttpError(400, 'body must be JSON: {"id":"<profile>"}')
+    }
+    try {
+      return switchProfile(id.trim())
+    } catch (e) {
+      throw new HttpError(400, e instanceof Error ? e.message : String(e))
+    }
+  })
+
+  // Case status: the case bound to THIS session. There is deliberately no
+  // "latest open case" fallback — that made the workbench show an unrelated
+  // session's investigation. Unbound sessions get a recent-case list instead.
+  get(`${ROUTE_BASE}/case`, async (req) => {
+    const sessionId = queryParam(req, 'sessionId')
+    const active = sessionId ? getCase(sessionId) : undefined
+    if (active) {
+      const hyps = await loadHypotheses(active.dir)
+      const evCount = await countEvidence(active.dir)
+      return {
+        active: true,
+        sessionId,
+        name: active.name, goal: active.goal, mode: active.mode,
+        evidenceCount: evCount,
+        hypotheses: hyps.map((h) => ({ id: h.id, statement: h.statement.slice(0, 100), status: h.status, evidenceIds: h.evidenceIds })),
+        openHypotheses: hyps.filter((h) => h.status === 'open').length,
+      }
+    }
+    const cases = await listCasesOnDisk()
+    return {
+      active: false,
+      sessionId: sessionId ?? null,
+      cases: cases.slice(0, 5).map((c) => ({
+        name: c.name, status: c.status, goal: c.goal, evidenceCount: c.evidenceCount,
+      })),
+    }
+  })
+
+  // Hypotheses for the session-bound case.
+  get(`${ROUTE_BASE}/case/hypotheses`, async (req) => {
+    const sessionId = queryParam(req, 'sessionId')
+    const active = sessionId ? getCase(sessionId) : undefined
+    return active ? loadHypotheses(active.dir) : []
+  })
+
+  // Findings for the session-bound case.
+  get(`${ROUTE_BASE}/case/findings`, async (req) => {
+    const sessionId = queryParam(req, 'sessionId')
+    const active = sessionId ? getCase(sessionId) : undefined
+    return active ? loadFindings(active.dir) : []
+  })
+
+  // Evidence list for the session-bound case.
+  get(`${ROUTE_BASE}/case/evidence`, async (req) => {
+    const sessionId = queryParam(req, 'sessionId')
+    const active = sessionId ? getCase(sessionId) : undefined
+    return active ? listEvidence(active.dir) : []
   })
 
 }

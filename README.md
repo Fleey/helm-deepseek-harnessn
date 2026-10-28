@@ -2,11 +2,11 @@
 
 # helm-d
 
-<p align="center"><strong>Version 0.5.1</strong></p>
+<p align="center"><strong>Version 0.5.2-fork.1</strong></p>
 
 **DeepSeek Harness 破甲安全分析插件**
 
-多破甲热切换 · 证据强制入链 · 34 工具 · 362 篇按需参考 · Android / Web / Native / Protocol / Malware / AI-Security 六域即开即用
+多破甲热切换 · 证据强制入链 · 33 工具 · 365 篇按需参考 · Android / Web / Native / Protocol / Malware / AI-Security 六域即开即用
 
 **求 Star 收藏 ⭐** 如要二开请看 [致谢](#致谢)
 
@@ -17,7 +17,7 @@
 [![Node >=22.19](https://img.shields.io/badge/Node-%3E%3D22.19.0-green)](https://nodejs.org)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
-[安装](#安装) · [八题实测](#八题实测) · [多破甲](#多破甲) · [34 工具](#34-工具) · [架构](#架构) · [工作台](#安全分析工作台) · [更新日志](CHANGELOG.md)
+[安装](#安装) · [八题实测](#八题实测) · [多破甲](#多破甲) · [33 工具](#33-工具) · [架构](#架构) · [工作台](#安全分析工作台) · [更新日志](CHANGELOG.md)
 
 </div>
 
@@ -25,31 +25,35 @@
 
 ## 关于本仓库（Fork）
 
-本仓库是 [**ADWMC/helm-d**](https://github.com/ADWMC/helm-d)（helmd）的 fork，唯一目标是**让 helmd 支持 dsh 桌面版（DSH NEXT / DSH Desktop）**。上游 0.5.1 的全部能力（34 工具、多破甲 profiles、密封分发、362 篇参考、健康卡片、工作台）原样保留，本文其余部分即上游文档。
+本仓库是 [**ADWMC/helm-d**](https://github.com/ADWMC/helm-d)（helmd）的 fork，唯一目标是**让 helmd 支持 dsh 桌面版（DSH NEXT / DSH Desktop）**。上游 0.5.2 的核心能力（33 工具、多破甲 profiles 热切换、密封分发、365 篇参考、Case 会话隔离、工作台）已移植，本文其余部分即上游文档。
 
-### 相对上游的调整点（全部围绕桌面版适配）
+### 相对上游的调整点（桌面版适配 + 0.5.2 移植保留）
 
 | # | 文件 | 调整 |
 |---|------|------|
 | 1 | `packages/helmd/scripts/gen-preset.mjs`（与根 `scripts/` 副本同步） | `desktopStandardCandidates()` 同时探测桌面版两种宿主布局：旧的**未打包**布局 `<app>/Resources/app/node_modules` 与新版（DSH NEXT 2.0.19+）的 **asar** 布局 `<app>/Resources/app.asar/node_modules`——asar 内路径只有桌面 Electron（RunAsNode）能读；支持 `DSH_DESKTOP_APP_DIR` 覆盖 |
-| 2 | `packages/helmd/src/health.ts` | 进程内定位宿主 standard：`process.resourcesPath` 精确定位 + 同套桌面双布局探测，asar 优先；`HOST_STANDARD_TAILS` 增加桌面平铺 tail；auto-heal 在 Electron 进程内 spawn 自动加 `ELECTRON_RUN_AS_NODE=1` |
+| 2 | `packages/helmd/src/health.ts` | 进程内定位宿主 standard：`process.resourcesPath` 精确定位 + 同套桌面双布局探测，asar 优先；`HOST_STANDARD_TAILS` 增加桌面平铺 tail；auto-heal 在 Electron 进程内 spawn 自动加 `ELECTRON_RUN_AS_NODE=1`；断言文案按平台显示 `[pwsh, read]`/`[bash, read]` |
 | 3 | `packages/helmd/scripts/setup-preset.sh` | 无系统 node 时回退桌面 Electron；有系统 node 但探不到宿主（asar 布局）时也自动重试 Electron 通道 |
-| 4 | `install.sh`（fork 附加，上游已移除安装脚本） | `desktop` 分支：desktop profile 由应用独占管理，脚本只做 profile 校验、应用内安装指引与 preset 重派生；0.5.x 密封分发包内无生成器，此时保留随包产物并提示以健康卡片为准（0.4.x 明文包仍会重派生） |
-| 5 | `packages/helmd/client.js` | 会话标签栏（对话/轨迹/helmd）工作台视图：仅在 helmd-preset 会话注册；`TabErrorBoundary` 拦截单标签页渲染错误（Intercept Log 白屏修复） |
-| — | `pnpm-workspace.yaml` / peer 范围 | 未改动：上游 0.5.1 已对齐 dsh `0.2.1-rc.2` cohort，产物指纹与本机 DSH NEXT 2.0.19-next 的宿主 standard 一致 |
+| 4 | `install.sh`（fork 附加，上游已移除安装脚本） | `desktop` 分支：desktop profile 由应用独占管理，脚本只做 profile 校验、应用内安装指引与 preset 重派生；0.5.x 密封分发包内无生成器，此时保留随包产物并提示以健康卡片为准；下载改为版本化 URL（API 解析最新 tag，`HELMD_VERSION` 可覆盖）——滚动 `latest/download` 地址写进 profile 依赖会破坏 pnpm lockfile sha512 |
+| 5 | `packages/helmd/client.js` | 会话标签栏（对话/轨迹/helmd）工作台视图保留：仅在 helmd-preset 会话注册；`TabErrorBoundary` 拦截单标签页渲染错误（Intercept Log 白屏修复）；上游 0.5.2 四 tab 面板（破甲/Case/拦截/关于）成为该视图的渲染内容；胶囊改独立槽位 id `helm-d:workbench`，不再 shadow 官方 `agent-preset` |
+| 6 | `packages/helmd/src/persona.ts` | 上游 `switchProfile`/`applyBoostSection`/带 disposer 的 `applyPersonaSection` 从 `gate.ts` 剥离至此——star gate（device flow、`/api/helmd/gate`、`helmd_unlock`）在 fork 中不存在；保留上游 `installPersona` 别名供 checks 复用 |
+| 7 | `packages/helmd/src/net-fetch.ts`（新） | 上游 star-gate.ts 的代理感知传输层（HTTPS_PROXY/ALL_PROXY/NO_PROXY + Windows 系统代理 + CONNECT 隧道）剥离为独立模块，供 `update-check.ts` 使用——无 device flow、无 GitHub 认证 |
+| 8 | `packages/helmd/src/update-check.ts` | `REPO` 指向 `Fleey/helm-deepseek-harnessn`（检查上游会永远提示别人家的新版）；npm 回退仍指 `@adwmc/helm-d` |
+| — | `pnpm-workspace.yaml` / peer 范围 | 未改动：上游已对齐 dsh `0.2.1-rc.2` cohort，产物指纹与本机 DSH NEXT 2.0.19-next 的宿主 standard 一致 |
 
 ### 已验证环境
 
 - DSH NEXT（`dsh-desktop-next` 2.0.19-next，内置 dsh 0.2.1-rc.2，**asar 布局**）· macOS
 - `gen-preset --check`（Electron RunAsNode 通道）→ `preset check OK`；`setup-preset.sh`（系统 node 存在但探不到宿主时自动走 Electron 回退）→ `unchanged / nothing to write`
 - 旧版布局（DSH NEXT 2.0.17，未打包 `app/node_modules`）此前的验证结论同样保留（探测顺序兼容两种布局）
+- **0.5.2-fork.1 验证**：系统 node 通道 checks 21 PASS · Electron RunAsNode 通道 21 PASS 零 SKIP · 封印 tarball verify-pack PASS（197 sealed files 零明文）
 
 ### 桌面版安装（30 秒版）
 
-DSH NEXT → 设置 → 插件 → 添加。**推荐 release tarball URL**（单包完整、probe 必过、dist 内置）：
+DSH NEXT → 设置 → 插件 → 添加。**推荐 release tarball URL**（单包完整、probe 必过、dist 内置；用带 `vX.Y.Z` 的版本化地址——`latest/download` 是滚动地址，写进 profile 依赖后下次发版会让 pnpm lockfile 的 sha512 失配 `ERR_PNPM_TARBALL_INTEGRITY`）：
 
 ```text
-https://github.com/Fleey/helm-deepseek-harnessn/releases/latest/download/helmd.tgz
+https://github.com/Fleey/helm-deepseek-harnessn/releases/download/v0.5.2-fork.1/helmd.tgz
 ```
 
 其余可用通道（均装到同一运行时；**仓库根地址自本 fork 的 `main` 起可直接安装**）：
@@ -116,7 +120,7 @@ github:Fleey/helm-deepseek-harnessn#main&path:packages/helmd
 **前提**：已安装 [`dsh`](https://github.com/deepseek-ai/deepseek-harness) CLI。
 
 ```bash
-dsh plugin --profile web add https://github.com/ADWMC/helm-d/releases/latest/download/helm-d.tgz
+dsh plugin --profile web add https://github.com/ADWMC/helm-d/releases/download/v0.5.2/helm-d.tgz
 ```
 
 安装器在本机按你已装的 dsh 宿主实时派生 preset（`gen-preset.mjs`），平台工具行永远匹配你自己的 dsh 版本。然后：
@@ -176,22 +180,22 @@ end_case(summary)
 
 规则写在代码里（`caseflow.ts`），不是写在提示词里求模型遵守。
 
-## 34 工具
+## 33 工具
 
 | 域 | 工具 |
 |----|------|
-| **Case** | `begin_case` `case_status` `record_finding` `save_evidence` `end_case` |
+| **Case** | `begin_case` `case_status` `record_hypothesis` `update_hypothesis` `record_finding` `save_evidence` `end_case` |
 | **路由/知识** | `skill_catalog` `read_reference` `route_task` `analysis_mode` |
 | **Android** | `apk_fingerprint` |
 | **Web** | `web_reference` `bot_analyze` |
 | **Native** | `native_reference` `detect_packer` `scan_strings` `xor_bruteforce` `encoding_detect` |
 | **Protocol** | `protocol_reference` `pcap_parse` `state_machine` `parse_har` |
 | **Malware** | `malware_reference` `ioc_extract` `yara_gen` |
-| **AI-Security** | `ai_reference` `llm_sim` `llm_probe` `llm_eval_suite` |
+| **AI-Security** | `ai_reference` `llm_sim` |
 | **Evidence** | `evidence_reference` `triage_artifact` `hash_artifact` |
-| **Toolbox** | `tool_recommend` `find_tool` `tool_memory` |
+| **Toolbox** | `tool_recommend` `tool_memory` |
 
-## 362 篇参考按需读
+## 365 篇参考按需读
 
 知识不塞 system prompt。`skill_catalog` 只做领域/信号路由，`read_reference` 按需读 `references/<domain>/`——Android 脱壳、Frida hook 模板、ConfuserEx 还原、TLS 抓包、LLM 注击 playbook、报告模板……模型读完自主判断，参考是弹药，不是命令。
 
@@ -260,7 +264,7 @@ helmd 会话遵循以下固定规则：
 
 | 规则 | 行为 |
 |------|------|
-| 知识按需读 | 362 个参考文档全放 `references/`，经 `read_reference` 读取，绝不注入 system prompt |
+| 知识按需读 | 365 个参考文档全放 `references/`，经 `read_reference` 读取，绝不注入 system prompt |
 | 目录即元数据 | `skill_catalog` 只做领域/信号路由，不下结论 |
 | 参考非硬规则 | 文档供模型自主判断，不作为强制约束 |
 

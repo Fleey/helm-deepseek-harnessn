@@ -218,7 +218,7 @@ function rowIds(text: string): string[] {
 /**
  * Structural half of the MAINTENANCE §8 guardrail: everything assertable about the artifact
  * itself, with no session involved. The live half (a restarted host answers the first
- * request with exactly [pwsh, read]) stays with the operator — it cannot be produced from
+ * request with exactly [pwsh, read] on Windows / [bash, read] elsewhere) stays with the operator — it cannot be produced from
  * inside the process that is being asserted.
  */
 export function assertPresetArtifact(deployed: string, hostStandardText: string): { ok: boolean; detail: string } {
@@ -294,7 +294,8 @@ function autoHealPreset(): { healed: boolean; verdict: string } {
       const why = String(res.stderr || res.error?.message || '').trim().split('\n').slice(-1)[0] ?? ''
       return { healed: false, verdict: `failed (exit ${String(res.status)}${why ? `: ${why}` : ''})` }
     }
-    return { healed: true, verdict: 'restart dsh and assert the first request is [pwsh, read] (MAINTENANCE §8)' }
+    const anchor = process.platform === 'win32' ? '[pwsh, read]' : '[bash, read]'
+    return { healed: true, verdict: `restart dsh and assert the first request is ${anchor} (MAINTENANCE §8)` }
   } catch (e) {
     return { healed: false, verdict: `failed (${(e as Error).message})` }
   }

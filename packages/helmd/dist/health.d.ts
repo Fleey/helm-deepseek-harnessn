@@ -31,7 +31,7 @@ export interface HelmdHealth {
 /**
  * Structural half of the MAINTENANCE §8 guardrail: everything assertable about the artifact
  * itself, with no session involved. The live half (a restarted host answers the first
- * request with exactly [pwsh, read]) stays with the operator — it cannot be produced from
+ * request with exactly [pwsh, read] on Windows / [bash, read] elsewhere) stays with the operator — it cannot be produced from
  * inside the process that is being asserted.
  */
 export declare function assertPresetArtifact(deployed: string, hostStandardText: string): {

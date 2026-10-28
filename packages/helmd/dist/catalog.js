@@ -33,18 +33,18 @@ export function loadCatalog() {
             sealed: p.sealed,
             body: unseal(p.sealed),
         })),
+        ...(raw.boost ? { boost: unseal(raw.boost) } : {}),
     };
     return cached;
+}
+/** Tail override block (sealed boost.txt). Undefined when the build has none. */
+export function boostBody() {
+    return loadCatalog().boost;
 }
 /** Profile body by id; falls back to the active profile. */
 export function profileBody(id) {
     const catalog = loadCatalog();
     const wanted = id ?? catalog.activeId;
     return catalog.profiles.find((p) => p.id === wanted)?.body;
-}
-export function profileName(id) {
-    const catalog = loadCatalog();
-    const wanted = id ?? catalog.activeId;
-    return catalog.profiles.find((p) => p.id === wanted)?.name;
 }
 //# sourceMappingURL=catalog.js.map

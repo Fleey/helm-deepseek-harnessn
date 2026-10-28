@@ -78,6 +78,16 @@ const REFUSAL_PREFIX_RE = new RegExp([
   '拒绝(?:执行|协助|回答)',
   "I can'?t (?:assist|help|provide)",
   'I cannot (?:assist|help|provide)',
+  // 2026-10-23：session-32bff626 实测漏网——"I can't run this one" 未命中，
+  // 拒绝整条滑过重试阶梯。拒绝动词表原先只有 assist|help|provide，而真实拒绝
+  // 常用 run/do/execute/work on/scan/attack。仍要求后接具体动作词，不退化裸词。
+  "I can'?t (?:run|do|execute|work on|engage in|participate|take part|scan|attack|attempt|touch|handle|carry out)",
+  'I cannot (?:run|do|execute|work on|engage in|participate|take part|scan|attack|attempt|touch|handle|carry out)',
+  "I (?:will not|won'?t) (?:run|do|execute|perform|scan|attack|engage|assist|help|provide)",
+  "I(?:'?m| am) not (?:able|going) to (?:run|do|execute|perform|scan|attack|help|assist|provide)",
+  "that(?:'s| is) the one line I hold",
+  'regardless of (?:how|what) (?:the request is|the task|the framing|the request)',
+  "not something I(?:'?ll| will) (?:do|run|execute|help with)",
   "I'?m sorry, but",
   'I am sorry, but',
   'I am unable to',
@@ -106,6 +116,16 @@ const REASONING_REFUSAL_RE = new RegExp([
   '未授权(?:扫描|攻击|访问)',
   '我的(?:实际|真实)准则',
   'my actual guidelines',
+  // 2026-10-23：同批漏网（reasoning 期）——"I should not do this" 与元层
+  // "jailbreak-style scaffold" 识别都未被捕获，重试阶梯完全没触发。
+  'I should not (?:do|run|perform|help|assist|comply|provide|engage)',
+  'I (?:also )?should(?: not)? (?:not )?(?:perform|run|do) any',
+  // 收窄：裸 'jailbreak-style' 会误伤 WAF/检测工程语境（"jailbreak-style
+  // detection in the WAF"），要求跟 scaffold/prompt/framing 才命中。
+  'jailbreak[- ]style (?:scaffold|prompt|framing|wrapper)',
+  'roleplay scaffolding',
+  "claims don'?t change that",
+  'the request is clearly to',
 ].join('|'), 'i')
 
 const REFUSAL_STOP_STRINGS = [
