@@ -4,6 +4,15 @@
 完整发布注记与资产见 [GitHub Releases](https://github.com/ADWMC/helm-d/releases)。
 官方QQ群：**213266664**
 
+## [0.5.3-fork.6] — 2026-11-05（fork：与官方 Agent Teams bundle 并存时不再重复安装团队工具）
+
+### 修复
+
+- **选中 helmd 会话时反复闪烁的真正原因**：helmd 生成的预设额外带了两行宿主实验性团队插件——预设内的 `tool-agent-team`（`@deepseek-ai/dsh-experimental-tool-agent-team`）和顶层的 `agent-team`（`@deepseek-ai/dsh-experimental-agent-team`）。profile 同时启用了官方的 Agent Teams bundle（`@deepseek-ai/dsh-experimental-agent-team-profile`）时，它会在宿主根树上再插入同样两行，团队工具因此对每个团队成员 agent 安装两次。第二次 `systemPrompt.section({ name: "team:policy" })` 抛出 `prompt section "team:policy" is already registered in this scope`，串行的 `agent/created` 分发失败，`dsh-agent-loop` 拆掉刚创建的 agent，客户端随即重开，形成每秒约 10 次的创建/销毁循环：会话从列表里消失又回来，标题退化成原始 id，标签行反复变化。该报错由宿主诊断日志在 `agents.announce` 处捕获，每一轮都相同
+- **修法**：两行改为在宿主根树已运行同一插件时自动停用（`disabled: !!js`，条件经 `ctx.get('loader').entries()` 读取根树；预设有自己的条目树，不在根树内，条件不会读到自身）。顶层服务行改用独立 id `helmd-agent-team`，避免和官方 bundle 的 `agent-team` 同 id（`insert` 不去重）；它的条件先排除自身 id 再读 `disabled`，不会递归。未启用官方 bundle 时，helmd 会话照旧带团队服务和团队工具
+- fork.5 的工作台标签持有 + 宽限期改动保留：它消除了循环里标签行的抖动，但不是循环的起点
+- **验证**：用宿主 0.2.2-rc.1 自带的 `entryListSchema` 解析快照，并用宿主 Loader 的 `evaluate` 求值两种情形（官方 bundle 开启 → 两行都停用；未开启或被禁用 → 两行都生效）；新增 `scripts/checks/team-rows.check.mjs`（main 上的快照全部失败，本版本全部通过），`scripts/test-gen-preset.mjs` 补充两行结构断言；`scripts/checks/run-all.mjs` 以 DSH NEXT 运行时跑在 0.2.2-rc.1 宿主包上 34/34 PASS（`ui-tokens` SKIP）。在 DSH NEXT 0.2.2-rc.1 实机上换入新快照后重启：两个 helmd 会话的 agent 各创建一次，没有 `announce` 失败、没有 `agent/disposed` 循环（换入前同一会话 10 秒内 20 次）
+
 ## [0.5.3-fork.5] — 2026-11-05（fork：修复选中 helmd 会话时会话与标签反复闪烁）
 
 ### 修复

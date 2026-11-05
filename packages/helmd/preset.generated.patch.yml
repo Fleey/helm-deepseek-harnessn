@@ -132,9 +132,11 @@
             disabled: true
           - id: tool-agent-team
             name: '@deepseek-ai/dsh-experimental-tool-agent-team'
+            disabled: !!js "[...(ctx.get('loader')?.entries?.() ?? [])].some((e) => e.options?.name === '@deepseek-ai/dsh-experimental-tool-agent-team' && !e.disabled)"
           - id: helmd
             name: '@adwmc/helm-d/agent'
-    - id: agent-team
+    - id: helmd-agent-team
       name: '@deepseek-ai/dsh-experimental-agent-team'
+      disabled: !!js "[...(ctx.get('loader')?.entries?.() ?? [])].some((e) => e.options?.name === '@deepseek-ai/dsh-experimental-agent-team' && e.options?.id !== 'helmd-agent-team' && !e.disabled)"
       config:
         maxMembers: 8

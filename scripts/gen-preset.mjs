@@ -50,6 +50,32 @@ const SEALED_SECRET = 'helm-d/profiles/v1::6f4d2a0c-9e17-4b8e-a3f2-c81d54e7b930'
 const SEALED_SALT = 'helm-d/profiles/v1::salt-v1'
 const SEALED_KEY = scryptSync(SEALED_SECRET, SEALED_SALT, 32)
 
+/**
+ * `!!js` conditions for the two team rows this preset adds: each stands down
+ * while the Host root already runs the same experimental Agent Teams plugin.
+ *
+ * The official Agent Teams bundle (`@deepseek-ai/dsh-experimental-agent-team-profile`)
+ * inserts `agent-team` and `tool-agent-team` at the Host root. With it on, a
+ * second `tool-agent-team` inside this preset installs the Team tools on every
+ * team member twice: the second `systemPrompt.section({ name: 'team:policy' })`
+ * throws "already registered in this scope", the serial `agent/created`
+ * dispatch fails, the Agent is torn down and the client opens it again — the
+ * session flickers in a create/dispose loop (about 10 per second).
+ *
+ * The Loader evaluates these as `with (ctx) eval(expr)`. `loader.entries()`
+ * walks the Host root tree only (a preset mounts a tree of its own), so the
+ * preset row never meets itself; the service row skips its own id before it
+ * reads `disabled`, so it never evaluates itself either. No double quotes:
+ * the text is emitted inside a double-quoted YAML scalar.
+ */
+const TEAM_SERVICE_ID = 'helmd-agent-team'
+function hostRunsPlugin(name, exceptId) {
+  const self = exceptId === undefined ? '' : ` && e.options?.id !== '${exceptId}'`
+  return `[...(ctx.get('loader')?.entries?.() ?? [])].some((e) => e.options?.name === '${name}'${self} && !e.disabled)`
+}
+const TEAM_TOOLS_ON_HOST = hostRunsPlugin('@deepseek-ai/dsh-experimental-tool-agent-team')
+const TEAM_SERVICE_ON_HOST = hostRunsPlugin('@deepseek-ai/dsh-experimental-agent-team', TEAM_SERVICE_ID)
+
 const scriptDir = dirname(fileURLToPath(import.meta.url))
 const repoRoot = resolve(scriptDir, '..')
 
@@ -371,8 +397,11 @@ function generate(hostText, personaText) {
     // Host-native experimental team tools, scoped to helmd sessions only (the
     // service row below is the host-plane half; this row is the per-preset half,
     // mirroring how standard.patch.yml scopes tool-subagent inside the preset).
+    // Stands down when the Host root already runs the same plugin (see
+    // TEAM_TOOLS_ON_HOST below).
     `${basePrefix}- id: tool-agent-team`,
     `${' '.repeat(base + 2)}name: '@deepseek-ai/dsh-experimental-tool-agent-team'`,
+    `${' '.repeat(base + 2)}disabled: !!js "${TEAM_TOOLS_ON_HOST}"`,
     `${basePrefix}- id: helmd`,
     `${' '.repeat(base + 2)}name: '@adwmc/helm-d/agent'`,
   ]
@@ -380,10 +409,13 @@ function generate(hostText, personaText) {
   // host-level services, so it composes at the top level like `subagent` does
   // in dsh-base — a sibling entry INSIDE the same `- insert:` list (col 4,
   // matching preset-helmd), outside any plugins block, hence invisible to
-  // pluginRowIds and to the helmd-only tool scoping.
+  // pluginRowIds and to the helmd-only tool scoping. Its own id keeps it apart
+  // from the official bundle's `agent-team` row (inserts are not deduplicated),
+  // and it stands down when that row is already running.
   const teamServiceRow = [
-    '    - id: agent-team',
+    `    - id: ${TEAM_SERVICE_ID}`,
     "      name: '@deepseek-ai/dsh-experimental-agent-team'",
+    `      disabled: !!js "${TEAM_SERVICE_ON_HOST}"`,
     '      config:',
     '        maxMembers: 8',
   ]
