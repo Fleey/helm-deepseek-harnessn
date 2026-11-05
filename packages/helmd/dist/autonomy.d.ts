@@ -16,6 +16,10 @@ export interface EvidenceView {
     id: string;
     file: string;
 }
+export interface PathCall {
+    name: string;
+    args: string;
+}
 export interface AutonomyInput {
     mode: string;
     goal?: string;
@@ -23,7 +27,12 @@ export interface AutonomyInput {
     findings: FindingView[];
     evidence: EvidenceView[];
     deadEnds?: string;
+    noPath?: string;
 }
+/** T-04: three consecutive identical tool+args calls with no evidence growth
+ *  are a dead path. The caller supplies whether evidence grew since the last
+ *  snapshot; absence of that snapshot never triggers. */
+export declare function detectNoPath(calls: PathCall[], evidenceGrew: boolean): string | undefined;
 /** Pick the playbook that fits the case goal. Discovery only — no phase gate. */
 export declare function playbookFor(goal: string): string;
 /** One line the model can act on now. Never a gate; end_case remains the hard stop. */

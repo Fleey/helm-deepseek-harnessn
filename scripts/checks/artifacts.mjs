@@ -151,7 +151,7 @@ export function pluginEntry() {
 
 /** Whether every built module a check may import is present. */
 export function distReady() {
-  return ['session-log.js', 'prompt-assembly.js', 'bootstrap.js', 'router.js', 'advisory.js', 'ledger.js', 'health.js']
+  return ['session-log.js', 'prompt-assembly.js', 'bootstrap.js', 'router.js', 'advisory.js', 'health.js']
     .every((name) => existsSync(join(distDir, name)))
 }
 
@@ -172,7 +172,6 @@ export async function loadArtifacts() {
     bootstrap: await built('bootstrap.js'),
     router: await built('router.js'),
     advisory: await built('advisory.js'),
-    ledger: await built('ledger.js'),
     health: await built('health.js'),
   }
 }

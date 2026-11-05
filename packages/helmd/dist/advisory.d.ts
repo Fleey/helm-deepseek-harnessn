@@ -57,7 +57,7 @@ export interface Reckoned {
     verdict: Verdict;
     turnsWaited: number;
 }
-/** Advisory ledger path; shares the tool-ledger directory so it survives with it. */
+/** Advisory ledger path; shares the runtime state directory with transport logs. */
 export declare function advisoryLedgerPath(): string;
 /** Submit or refresh one advisory for a session. `atEventCount` anchors the proof window. */
 export declare function submitAdvisory(sessionId: string, advisory: Advisory, atEventCount: number): void;

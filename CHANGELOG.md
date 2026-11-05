@@ -4,9 +4,82 @@
 完整发布注记与资产见 [GitHub Releases](https://github.com/ADWMC/helm-d/releases)。
 官方QQ群：**213266664**
 
+## [0.5.3-fork.1] — 2026-11-05（fork：同步上游 v0.5.3 — Team 协作 / 证据审计 / Recon·PoC·Mining / Toolbox 2.0）
+
+上游 v0.5.3 的全量移植（`v0.5.2…v0.5.3` 共 33 commits / 92 文件），逐文件三方核对后吸收；fork 桌面适配与无 star-gate 立场全部保留。
+
+### 吸收自上游 0.5.3
+
+- **Team 协作落地**：`team.ts` / `team-worker.ts` / `team-policy.ts` / `team-eval.ts` / `tools/team.ts` 全套移植（`team_create` / `team_status` / `team_report` / `team_steer` / `team_dispatch`），worker 经宿主 `ctx.subagents` 的 spawn/fork provider 启动；`/api/helmd/team`、`/api/helmd/team/versions` 路由同步
+- **证据审计**：`record_finding` 的 hash / E-id 逐字命中校验、`negative_evidence_ids` 负对照、证据 sha256/prevHash 链、`update_finding` 状态流转、SARIF 2.1.0 / 确定性报告 / 趋势路由（`case/sarif`、`case/report`、`case/trend`）
+- **Recon / PoC / Mining / OOB**：`recon_passive|ports|http|crawl|import`、`run_poc`、`mine_candidates`、`oob_start|poll|stop`，配套 `src/recon.ts` / `poc.ts` / `mining.ts` / `oob.ts` 与 `runtime-paths.ts`
+- **Toolbox 2.0**：`src/toolbox/{catalog,health,installer,registry}.ts` + `toolbox` 工具 + `/api/helmd/tools/*` 路由 + 审批队列 `src/approval.ts` 与 `/api/helmd/approvals`；`toolbox.modelInstall` 默认关闭
+- **设置面**：`src/settings.ts` + `/api/helmd/settings`（工作台设置 tab 与 DSH 设置页同源）
+- **references 索引重建**：353 篇正文 + 9 个索引，`scripts/gen-references-index.mjs` 生成 + `references-index` 检查
+- **检查集 21 → 33**：新增 finding-gate / finding-registry / finding-export / recon-poc-mining / toolbox-catalog / settings / seam-resolution / references-index / context-discipline / ui-tokens 等
+
+### fork 侧处置（与上游的差异）
+
+- **继续不移植**：star gate 全家（`gate.ts` / `star-gate.ts` / `/api/helmd/gate*` / `helmd_unlock` / Star 弹窗）、`docs/design/**`、CI workflow、CONTRIBUTING/SECURITY 等工程文档
+- **随上游删除**：`tool_memory` 与 `src/ledger.ts`（上游 0.5.3 裁决：77 条账本里 35 条未登记、67 条路径不可解析），`route_task` 货架注入与 `case_status` 死路注入一并移除；`scripts/checks/tool-memory-schema.check.mjs` 删除
+- **传输层改写**：上游新增模块的 `../star-gate.js` 导入全部改指 fork 的 `net-fetch.ts`（`requestText` / `requestBuffer`），零 GitHub 认证、零 device flow
+- **client.js 重做**：以上游 0.5.3 的七 tab 面板（破甲 / Case / Team / 工具 / 拦截 / 设置 / 关于）为基座，重新贴回 fork 三件套——`conversation.view` 会话标签栏、`TabErrorBoundary` 单标签错误隔离、胶囊独立槽位 `helm-d:workbench`；删除 `HelmdGatePanel` 与设置页 Star 卡片
+- **破甲档位 id 保持 fork 命名**：`core` / `stealth` / `redteam-max`（上游的 `ds4.1f` / `gpt-6x` 不引入），`profiles/*.md` 沿用 fork `core.md` 的 `extends: core` overlay 结构
+- **版本**：根 `package.json` 与 `packages/helmd/package.json` 同为 `0.5.3-fork.1`
+
 ## [0.5.2-fork.1] — 2026-10-28（fork：移植上游 0.5.2 核心 — Case 会话隔离 / 假设账本 / 破甲热切换 / 新工作台）
 
 上游 v0.5.2（重发版）核心能力的完整移植，叠加 fork 桌面适配保留项。上游与 fork 基线（v0.5.1）之间的全部差异已逐文件核对（90 文件）后选择性吸收。
+
+## [0.5.3] — 2026-11-04（Team/证据/recon/PoC/mining 全量落地）
+
+### 参考项目吸收（T-01…T-17）
+
+- **Team 协作**：`team_steer` 对运行中 worker 实时纠偏（非 orchestrator 拒绝）；ticket 任务 DAG 支持 `claimTask` 租约/幂等/回收与依赖解锁；per-ticket budget + finish gate（预算/无实质结果 → blocked，不再伪装 ready）
+- **证据与验证**：`record_finding` 审计 detail 中的 hash/E-id 必须在 cited evidence 中逐字命中；支持独立 `negative_evidence_ids` + `negative_control`；证据落盘写 sha256/prevHash 链，篡改后 finding 自动标 stale；NO_PATH 对连续 3 次相同 tool+args 且证据无增长硬提示
+- **进化与上下文**：gate 增加 0.1 噪声宽限、最小改善、holdout、编辑预算、父代 score×1/(1+children)；>256KB 工具输出完整落证据、模型只看 head/tail
+- **审批与 UI**：dynamic worker 高风险命令按 `team.riskApproval` ask/deny/allow，per-role allow/deny；Case tab 支持 finding 状态按钮、severity/status 过滤、critical/high 头部、Case 列表计数；SARIF 2.1.0 / 确定性报告 / CVSS 向量 / 趋势
+- **Recon / PoC / Mining**：资产账本 + scope/限速/六维覆盖；recon_passive/ports/http/crawl/import；确定性 PoC recipe + 正负对照三态；HAR/OpenAPI/JS 候选提取与候选账本
+- **Toolbox 2.0**：catalog 评分排序、MCP 只读发现、command probe TTL 缓存、离线镜像（sha256 必填）、update 原子回退
+- 工具数 38 → 49，检查集 29 → 33；APK AXML、二进制 strings、OOB、审批队列、滚动/IME、update/mirror 均已补齐；真实模型 E2E 仍需可用端点
+
+### 参考知识
+
+- **references 总索引重建**：`references/index.md` 从 38 行领域清单重做为「任务路由（48 条信号 → 具体文档）+ 领域总览 + 353 篇全量目录」；8 个领域索引同步改为按子类组织的表格，含每篇标题/摘要/类型/来源，修复旧索引的失效文件与错误计数。索引由 `scripts/gen-references-index.mjs` 从正文生成（标题取 H1、摘要取首段或 H2 大纲、特殊文档用 override），新增 `references-index` 检查（生成物一致、每篇恰好一次、链接可达、领域计数一致），检查集 28 → 29
+
+### 工具面
+
+- **外部工具下载器（T-17 MVP）**：新增 `toolbox` 工具 + WebUI「工具」tab。catalog 只含**已核实 GitHub 仓库**的外部工具（54 项：release 16 / pip 18 / manual 20；新增 rizin/capa/FLOSS/YARA/angr/pwntools/ROPgadget/GhidraMCP、MobSF/objection/Quark/APKiD、nuclei/ffuf/mitmproxy/Impacket/NetExec/sqlmap、Volatility3/oletools/PE-sieve/hollows_hunter、Semgrep/Joern、binwalk/unblob、garak 等；无 GitHub 的 IDA/ExeinfoPE/gdb/nook 不入 catalog）；安装来源固定为对应仓库 latest release，资产必须带 GitHub sha256 digest，缺失即拒绝；解压抗 symlink 逃逸、按 `<id>/<tag>/` 隔离、失败回滚；pip/manual 条目只给命令不代执行，新增条目记录 upstream license。模型侧 `toolbox(action=catalog|status|install)`，安装默认被 `toolbox.modelInstall=false` 挡住（仅 UI/操作者安装）。真实 release 审计 16/16 可解析，UPX 与 BootKey.exe 已真机完成下载→sha256→安装→健康→卸载；多资产用固定名或版本无关 `assetPattern` 锁定，下载跟随 302，Windows 用系统 bsdtar 解 zip，工具根目录跟随 `$DSH_HOME`。工具数 37 → 38，检查集 27 → 28
+
+
+- **删除 `tool_memory`**：模型持续把临时命令/猜测写成"工具账本"，实测 77 条里 35 条未登记、67 条路径不可解析；同时 stop `route_task` 注入全部 77 行货架、`case_status` 注入死路、`/api/helmd/health.tools` 的货架 JSON。工具数 38 → 37，检查集 28 → 27；`TOOLS.md`/`DEAD_ENDS.md` 保留在磁盘（不再读写），`tool_recommend` 与 `references/toolbox/` 保留
+
+### 漏洞登记与定级
+
+- **findings.json 注册表**：`record_finding` 升级为结构化登记（`F-xxx`、severity/status/confidence/vuln_class/target/cvss/seen_count），markdown 保留审计；旧 `findings.md` 自动兼容读取
+- **等级判定不靠模型自报**：CVSS 区间权威覆盖并保留 assertedSeverity 审计；unverified confidence 封顶 medium；critical/high 需 ≥2 条独立 E-id，否则降一级（对齐 xalgorix/Decepticon/T3MP3ST 的"证据强度封顶"）
+- **去重与生命周期**：`vuln_class + target + 归一化 title` 同键合并（证据并集、取最高等级、seen_count++）；新增 `update_finding` 走 candidate → verified → rejected/duplicate/wontfix；`case_status` 输出 severity/status 统计
+- 工具数 37 → 38；新增 `finding-registry` 检查（降级/CVSS/置信度/去重/状态流转/旧档兼容），检查集 28 项
+
+### Team v2（自主基质）
+
+- **`HELMD_BOOTSTRAP=off` 逃生阀**：插件以宿主级 scope 挂载（headless / 自动化工装）时，晋升监听不触发、会话会钉死在 `shell+read`——新增环境开关跳过首轮过滤，直接暴露全量编目；真机三轮实机冒烟据此打通（web preset 作用域不受影响）
+- **接入宿主原生 agent-team**：preset 内挂 `tool-agent-team`（spawn_teammate / send_message / list_agents / wait_agent / interrupt_agent / team_task_* 九个原生工具 + 自带协作契约段），组合顶层挂 `agent-team` 服务（maxMembers 8）；只影响 helmd 会话，非 helmd 零泄漏。命名可续 teammate、durable 信箱、共享任务 DAG 全部原生
+- **编排契约**：新增 `helmd:team-loop` systemPrompt context——事件驱动（worker 完成自动唤醒 orchestrator，禁止轮询/空等）、原生轨与 ticket 轨的分工、证据纪律、阻塞显式上报
+- **角色依赖 DAG**：`TeamTicket.roleDeps`（如 critic 等 static+dynamic），`team_dispatch` 强制门禁，team_status 与工作台显示 waits
+- **修 test:preset 历史遗留**：persona 封印化后 `test-gen-preset` 的明文锚点失效（HEAD 上即红）；改为断言空 prefix + 无明文泄漏，并同步 tool-agent-team 行期望。生成器断言与健康断言同步新行集
+
+### 团队与设置
+
+- **Team 模型侧闭环**：新增 `team_create` / `team_status` / `team_report` 三个工具，补上「模型只能 dispatch、建单却只能靠 UI」的断点；`team_dispatch` 仍只允许 orchestrator，worker 可用 `team_report` 汇报中间结果/阻塞。工具数 34 → 37
+- **Team UI 建单解耦**：Team tab 支持未绑定 case 时直接填 goal 新建 ticket（落到 `storages/helmd/team/standalone`）、勾选角色；不再强制先 begin_case
+- **设置面**：`health.ts` 导出组合行 Config schema——DSH 设置页自动出现 helm-d 表单；工作台新增「设置」tab（`/api/helmd/settings`），与设置页同写 `storages/helmd/settings.json`（设置页改动在重启时并入）
+- **设置项接线**：Team（begin_case 自动建单、默认角色集、每 ticket 并发上限 1-8、默认 worker 超时分钟）、拦截总开关、`[autonomy]` 状态包开关、L4-lite 建议开关、Star 弹窗延迟——全部生效于运行中的宿主，不再只有环境变量
+- **新增 settings 检查**（默认值/合并/clamp/并发上限生效），检查集 24 → 25 项
+
+## [0.5.3-rc] — 2026-11-03（撤回基线；内容并入 0.5.3）
+
+本版把许可与免责声明改成 AGPL-3.0-or-later 并补齐三大法域要点；主档改名 `ds4.1f` 并新增第四档 `gpt-6x`；把本地多 agent 协作协议从「工单状态机」补成可运行的 worker 会话 + Team 工作台 + A/B 进化门禁；发布资产改用版本化 URL 收口 Issue #5。分发形态不变：payload / references / profiles 全封印，release 资产仍是 3 个 tgz。
 
 ### Case 会话隔离 + 提示词注入（上游重发主打）
 
@@ -34,6 +107,14 @@
 - **检查更新**：`GET /api/helmd/update` 先查 GitHub Releases、失败回退 npm registry，复用代理感知传输（`net-fetch.ts`，原生 fetch 无视代理）；REPO 指向本 fork 仓库
 - **（fork 保留）会话标签栏工作台**：`conversation.view` 槽位的 helmd tab（仅 helmd-preset 会话注册）与 `TabErrorBoundary` 单标签错误隔离（Intercept Log 白屏修复）——上游面板成为该 tab 的渲染内容
 - **胶囊改用独立槽位 id `helm-d:workbench`**（上游 main e5a68f8 修复）：不再 shadow 官方 `agent-preset`，非 helmd 会话不再被顶掉官方 preset 标签；非 helmd 会话渲染 null
+- **修复 Issue #5**：README / README.en / About 页的安装更新命令改用版本化 URL；`releases/latest/download/*` 不再作为 profile 依赖（滚动资产会让 pnpm lockfile sha512 失配，`ERR_PNPM_TARBALL_INTEGRITY`）。新增 `docs/install-troubleshooting.md` 自救文档和 `install-url` 检查（23 项 checks）。**自 v0.5.3 起**：About 页给出的安装命令已改为 `releases/download/v0.5.3/...`；已经写坏 lockfile 的 profile 按 [安装故障排查](docs/install-troubleshooting.md) 移除旧依赖后用版本化 URL 重装即可
+- **本地多 agent 协作协议**：新增 `team.ts` 的 ticket / role assignment / report / handoff 状态机与 `GET/POST /api/helmd/team`；本地文件状态，无外部服务
+- **本地可审计进化**：新增 versioned `role-prompt` / `playbook` / `skill` / `model-profile` / `budget-policy` / `tool-policy`，带 eval gate、activate/rollback 与 `GET/POST /api/helmd/team/versions`；`docs/design/TEAM-COLLABORATION-EVOLUTION.md` 记录 prompt-leaks/superagent 模式对照
+- **非 helmd 会话隔离**：header 胶囊不再抢官方 `agent-preset` 座位，非 helmd 直接返回 null；Star gate 从全局 `shell.overlay` 移入 helmd-only capsule；侧栏 guide 不再向所有会话展示 helm-d tab；`/api/helmd/gate` 在 gate 未注册时不启动设备流。新增 `client-scope` 检查
+- **本地 Team worker**：`team-worker.ts` 通过宿主 `ctx.subagents` 的 `spawn`/`fork` provider 启动 child Agent；ticket 首次派工时钉住 active revision；结果/失败/超时自动回写 report；`team_dispatch` 只允许 orchestrator；worker 不能开/关父 case 或继续派工
+- **Team 工作台**：新增 Team tab（ticket、角色启动、报告、E-id、revision、activate/rollback）；`/api/helmd/team` 新增 `action:start`，从当前 live session 启动本地 worker
+- **本地 eval harness**：`team-eval.ts` + `scripts/team-eval.mjs` 消费真实运行记录，计算六项 gate 指标；只有 pass 的 revision 才能 activate；新增 `team-eval` 检查，检查集 24 项
+- **工具数 34**：新增 `team_dispatch`；README / README.en / MAINTENANCE / 工具目录同步
 
 ### 工具集变更（34 → 33）
 

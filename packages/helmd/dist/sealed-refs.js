@@ -47,9 +47,10 @@ export function readSealedReference(relPath) {
     return m.get(key);
 }
 /** Sealed content by absolute path: any path containing a `references`
- *  segment maps to its bundle key (references/<rest>). Used by readTextSeam
- *  so every domain tool's plaintext reference read transparently falls back
- *  to the encrypted bundle when the plaintext file is absent. */
+ *  segment maps to its bundle key. Used by readTextSeam so every domain
+ *  tool's plaintext reference read transparently falls back to the encrypted
+ *  bundle when the plaintext file is absent (sealed installs carry no
+ *  plaintext references/). */
 export function readSealedByAbsPath(absPath) {
     const m = manifest();
     if (m === undefined)
@@ -59,7 +60,9 @@ export function readSealedByAbsPath(absPath) {
     const idx = norm.lastIndexOf(marker);
     if (idx < 0)
         return undefined;
-    const key = 'references' + norm.slice(idx + marker.length);
-    return m.get(key);
+    const rest = norm.slice(idx + marker.length);
+    // Bundle keys carry NO `references/` prefix (walk() runs inside references/);
+    // keep the prefixed spelling as a fallback for other bundle layouts.
+    return m.get(rest) ?? m.get(`references/${rest}`);
 }
 //# sourceMappingURL=sealed-refs.js.map

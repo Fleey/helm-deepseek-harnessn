@@ -3,6 +3,9 @@ import type { Context } from '@deepseek-ai/cordis';
  *  package.json). Modules live at dist/ (dev) or dist/.real/ (sealed runtime)
  *  — fixed ../ depth breaks in the .real layout, so locate the root by marker. */
 export declare function packageRoot(): string;
+/** Resolve an interpreter across all alias spellings and PATH dirs, rejecting
+ *  stubs and non-working binaries. Returns the first usable candidate. */
+export declare function findInterpreter(command: string): string | null;
 /** Resolve an interpreter/command through the subprocess seam, then the local PATH. */
 export declare function resolveCommand(_ctx: Context, command: string): Promise<string>;
 /** Validate and normalize a path stays within the allowed root. */

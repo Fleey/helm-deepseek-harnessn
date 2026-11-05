@@ -6,15 +6,23 @@ import { getLevel } from './mode.js';
 import { deriveNextAction } from './autonomy.js';
 import { submitAdvisory } from './advisory.js';
 import { sessionEvents } from './session-log.js';
+import { loadSettings } from './settings.js';
 const NO_PERSIST = new Set([
     // knowledge / router / session tools — outputs are not case artifacts
     'skill_catalog', 'read_reference', 'analysis_mode', 'route_task',
     'evidence_reference', 'native_reference', 'web_reference',
     'malware_reference', 'ai_reference', 'protocol_reference',
-    'tool_recommend', 'tool_memory',
+    'tool_recommend',
+    // coordination, not an artifact of the analysis
+    'team_dispatch',
     // case lifecycle / ledger bookkeeping itself
     'begin_case', 'case_status', 'record_finding', 'end_case', 'save_evidence',
     'record_hypothesis', 'update_hypothesis',
+    // recon tools persist raw output and the asset/evidence link themselves
+    'recon_passive', 'recon_ports', 'recon_http', 'recon_crawl', 'recon_import',
+    'run_poc',
+    'oob_start', 'oob_poll', 'oob_stop',
+    'mine_candidates',
 ]);
 export function isNoPersist(toolName) {
     return NO_PERSIST.has(toolName);
@@ -24,6 +32,8 @@ const lastNudge = new Map();
  *  advisory section when the case state changes. A nudge, never a gate. */
 async function nudgeCaseState(sessionId, agent, active) {
     if (sessionId === undefined)
+        return;
+    if (!loadSettings().advisory.nextActionNudge)
         return;
     const now = Date.now();
     const last = lastNudge.get(sessionId);
@@ -62,12 +72,23 @@ async function persistHook(sessionId, toolName, result, agent) {
         return result + '\n[no active case — output NOT persisted. begin_case(goal, samples) keeps evidence.]';
     }
     const firstLine = result.split('\n').find((l) => l.trim()) ?? '';
-    const { id } = await saveEvidence(active.dir, toolName, result, firstLine);
+    const large = result.length > 256 * 1024;
+    const { id, path } = await saveEvidence(active.dir, toolName, result, firstLine, large ? { maxBytes: 0 } : {});
     try {
         await nudgeCaseState(sessionId, agent, active);
     }
     catch {
         // The nudge is best-effort; a case/ledger read failure must not break the tool result.
+    }
+    if (large) {
+        return [
+            `[evidence: ${id} saved to ${active.name} — full output is ${result.length} bytes at ${path}]`,
+            '[model view: head/tail stub only; read the evidence file for the middle]',
+            '--- head ---',
+            result.slice(0, 4096),
+            '--- tail ---',
+            result.slice(-4096),
+        ].join('\n');
     }
     return result + `\n[evidence: ${id} saved to ${active.name}]`;
 }

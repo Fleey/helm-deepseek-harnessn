@@ -2,22 +2,28 @@
 // end_case — every one of them reads or writes the session's active case.
 import { defineTool } from '@deepseek-ai/dsh-tools';
 import { existsSync } from 'node:fs';
-import { resolve } from 'node:path';
-import { bindCase, getCase, unbindCase, createCaseDir, loadCaseMd, closeCase, validateEvidenceIds, appendFinding, saveEvidence, countEvidence, casesRoot, findOpenCaseOnDisk, loadCaseInfoFromDisk, auditCasesRoot, listLooseFilesInCase, recordHypothesis, updateHypothesis, loadHypotheses, getOpenHypothesisCount, listEvidence, loadFindings, } from '../case.js';
+import { resolve, join } from 'node:path';
+import { bindCase, getCase, unbindCase, createCaseDir, loadCaseMd, closeCase, validateEvidenceIds, recordFinding, updateFinding, saveEvidence, countEvidence, severityCounts, findingStatusCounts, uncitedClaims, listEvidenceMeta, casesRoot, findOpenCaseOnDisk, loadCaseInfoFromDisk, auditCasesRoot, listLooseFilesInCase, recordHypothesis, updateHypothesis, loadHypotheses, getOpenHypothesisCount, listEvidence, loadFindings, FINDING_SEVERITIES, FINDING_STATUSES, FINDING_CONFIDENCES, } from '../case.js';
 import { getLevel } from '../mode.js';
 import { renderAdvisoryStats } from '../advisory.js';
 import { getStreamInterceptionStats } from '../llm-stream-hook.js';
-import { deadEndsSummary } from '../ledger.js';
-import { renderAutonomyPacket } from '../autonomy.js';
+import { renderAutonomyPacket, detectNoPath } from '../autonomy.js';
+import { loadSettings } from '../settings.js';
+import { loadAssets, coverageLine } from '../recon.js';
+import { miningLine } from '../mining.js';
+import { createTicket } from '../team.js';
+import { sessionEvents, toolCalls } from '../session-log.js';
+/** Per-session evidence snapshot for the NO_PATH guard. */
+const lastEvidenceCount = new Map();
 function resolveWorkspaceRoot(root, exec) {
     return root?.trim() || exec?.agent?.session?.header?.cwd || exec?.agent?.cwd || exec?.agent?.workspace;
 }
 const RULES = [
-    '1. Built-in tools first; missing capability → use shell (gh/curl) to find and install it, then tool_memory(register); custom scripts LAST, only in <case>/scripts/.',
+    '1. Built-in tools first; missing capability → use shell (gh/curl) to find and install it; custom scripts LAST, only in <case>/scripts/.',
     '2. External CLI output → save_evidence(label, ...) before citing it.',
     '3. Parameters come from prior tool output in evidence/. Findings cite E ids via record_finding.',
     '4. Resume after compaction → case_status(); before compaction, bring the CASE.md `## resume` block up to date.',
-    '5. Installed a tool or learned a verified usage → tool_memory(register/note) with evidence id; a tactic failing 3 times in a row on the same target (no new evidence) → tool_memory note target=deadend, and never retry a filed dead end without new evidence.',
+    '5. A tactic failing 3 times in a row on the same target (no new evidence) → stop, record the dead end in the case, and never retry it without new evidence.',
 ].join('\n');
 export function registerCaseflowTools(ctx) {
     ctx.tools.register(defineTool({
@@ -30,6 +36,7 @@ export function registerCaseflowTools(ctx) {
             samples: { type: 'array', items: { type: 'string' }, description: 'Absolute paths of sample files to ingest.' },
             root: { type: 'string', description: 'Workspace root; defaults to session cwd, HELMD_CASES_DIR, or process cwd.' },
             force: { type: 'boolean', description: 'Force open a new case even if an uncompleted open case exists on disk.' },
+            scope: { type: 'array', items: { type: 'string' }, description: 'Recon scope (hostnames/CIDRs). Recon tools refuse targets outside it; private/loopback still needs lab=true.' },
         },
         output: { schema: { type: 'string' }, render: (_a, v) => [{ type: 'text', text: v }] },
         async execute(args, exec) {
@@ -59,11 +66,26 @@ export function registerCaseflowTools(ctx) {
                 mode,
                 route: 'pending (route_task)',
                 root: effectiveRoot,
+                ...(args.scope !== undefined && args.scope.length > 0 ? { scope: args.scope } : {}),
             });
             bindCase(exec?.agent?.id, info);
+            // Optional team hook: settings.team.autoTicket opens a ticket per case so
+            // the model can dispatch immediately. Best-effort — a team failure must
+            // never block opening the case.
+            let teamNote = '';
+            if (loadSettings().team.autoTicket) {
+                try {
+                    const ticket = createTicket({ goal: args.goal ?? info.goal, caseDir: info.dir });
+                    teamNote = `team ticket: ${ticket.id} (${ticket.roles.map((r) => r.role).join(', ')}) — dispatch with team_dispatch`;
+                }
+                catch (error) {
+                    teamNote = `team ticket: skipped (${error instanceof Error ? error.message : String(error)})`;
+                }
+            }
             return [
                 `case opened: ${info.dir}`,
                 `mode: ${mode}`,
+                ...(teamNote !== '' ? [teamNote] : []),
                 '',
                 RULES,
             ].join('\n');
@@ -139,14 +161,27 @@ export function registerCaseflowTools(ctx) {
             const hypotheses = await loadHypotheses(active.dir);
             const findings = await loadFindings(active.dir);
             const evidence = await listEvidence(active.dir);
-            const packet = renderAutonomyPacket({
-                mode: getLevel(exec?.agent?.id),
-                goal: active.goal,
-                hypotheses,
-                findings,
-                evidence,
-                deadEnds: deadEndsSummary(3),
-            });
+            const reconAssets = await loadAssets(active.dir);
+            const bySeverity = severityCounts(findings);
+            const byStatus = findingStatusCounts(findings);
+            const findingStats = findings.length === 0
+                ? 'findings: none'
+                : `findings: ${findings.length} — critical ${bySeverity.critical} · high ${bySeverity.high} · medium ${bySeverity.medium} · low ${bySeverity.low} · info ${bySeverity.info} | verified ${byStatus.verified} · candidate ${byStatus.candidate} · rejected ${byStatus.rejected} · duplicate ${byStatus.duplicate} · wontfix ${byStatus.wontfix}${findings.some((finding) => finding.stale) ? ` | STALE ${findings.filter((finding) => finding.stale).map((finding) => finding.id).join(',')}` : ''}`;
+            const sessionKey = exec?.agent?.id ?? '__global__';
+            const previousEvidence = lastEvidenceCount.get(sessionKey);
+            lastEvidenceCount.set(sessionKey, evidence.length);
+            const noPath = previousEvidence === undefined
+                ? undefined
+                : detectNoPath(toolCalls(sessionEvents(exec?.agent, 'caseflow')), evidence.length > previousEvidence);
+            const packet = loadSettings().advisory.autonomyPacket
+                ? renderAutonomyPacket({ mode: getLevel(exec?.agent?.id),
+                    goal: active.goal,
+                    hypotheses,
+                    findings,
+                    evidence,
+                    ...(noPath !== undefined ? { noPath } : {}),
+                })
+                : '';
             return [
                 `case: ${active.name}`,
                 `dir: ${active.dir}`,
@@ -157,8 +192,11 @@ export function registerCaseflowTools(ctx) {
                 timeline || '  (empty)',
                 looseNotice,
                 ...(resume ? ['', resume] : []),
+                ...(packet !== '' ? ['', packet] : []),
                 '',
-                packet,
+                findingStats,
+                coverageLine(reconAssets),
+                miningLine(active.dir, reconAssets.length),
                 '',
                 RULES,
                 ...(renderAdvisoryStats() ? ['', renderAdvisoryStats()] : []),
@@ -170,14 +208,29 @@ export function registerCaseflowTools(ctx) {
     }));
     ctx.tools.register(defineTool({
         name: 'record_finding',
-        description: 'Record a conclusion into findings.md. Every evidence id you cite is validated against the evidence/ directory — ' +
-            'citing ids that do not exist is rejected. Pass repro_cmd (a command that reproduces the result); ' +
-            'DEEP mode requires it before the case can close.',
+        description: 'Register a finding in the case register (findings.json + findings.md). severity is required; CVSS (when given) is ' +
+            'authoritative and the asserted value is kept for audit. critical/high need >= 2 evidence ids and non-unverified ' +
+            'confidence, otherwise the severity is downgraded. Identical vuln_class+target+title merges into the existing finding. ' +
+            'Every evidence id is validated; citing unknown ids or self-authored evidence is rejected.',
         parameters: {
-            title: { type: 'string', required: true },
-            detail: { type: 'string', required: true },
-            evidence_ids: { type: 'array', items: { type: 'string' }, required: true, description: 'e.g. ["E-002","E-005"]' },
+            title: { type: 'string', required: true, description: 'Finding title, e.g. "License check is a plaintext base64 compare".' },
+            detail: { type: 'string', required: true, description: 'What was found, how it was observed, and the impact.' },
+            evidence_ids: { type: 'array', items: { type: 'string' }, required: true, description: 'e.g. ["E-002","E-005"].' },
             repro_cmd: { type: 'string', required: true, description: 'Reusable command/tool call that reproduces the conclusion.' },
+            severity: {
+                type: 'string',
+                required: true,
+                description: `One of: ${FINDING_SEVERITIES.join(' | ')}. critical/high require >= 2 evidence ids.`,
+            },
+            vuln_class: { type: 'string', description: 'Vulnerability class, e.g. auth-bypass / xss / license-bypass; used for dedup.' },
+            target: { type: 'string', description: 'Affected target/endpoint/file; used for dedup.' },
+            confidence: { type: 'string', description: `One of: ${FINDING_CONFIDENCES.join(' | ')} (default probable). unverified caps severity at medium.` },
+            cvss: { type: 'number', description: 'CVSS v3 score 0-10; when supplied it overrides severity by the standard bands.' },
+            cvss_vector: { type: 'string', description: 'CVSS v3.1 base vector, e.g. CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:H. Overrides cvss.' },
+            status: { type: 'string', description: `Initial triage state: ${FINDING_STATUSES.join(' | ')} (default verified after the gates).` },
+            negative_evidence_ids: { type: 'array', items: { type: 'string' }, description: 'Independent negative-control evidence ids; must not overlap evidence_ids.' },
+            negative_control: { type: 'string', description: 'What the negative control was and why it must not reproduce the finding.' },
+            poc_id: { type: 'string', description: 'PoC recipe/run id from run_poc (e.g. "sqli-boolean"); links the finding to the positive/negative evidence.' },
         },
         output: { schema: { type: 'string' }, render: (_a, v) => [{ type: 'text', text: v }] },
         async execute(args, exec) {
@@ -195,8 +248,114 @@ export function registerCaseflowTools(ctx) {
             if ((args.repro_cmd ?? '').trim() === '') {
                 return 'REJECTED — repro_cmd is required: a finding without a reproducible command is not a conclusion.';
             }
-            await appendFinding(active.dir, args.title, args.detail, args.evidence_ids ?? [], args.repro_cmd);
-            return `finding recorded: ${args.title} [${(args.evidence_ids ?? []).join(', ')}]\nrepro: ${args.repro_cmd.trim()}`;
+            const negativeIds = args.negative_evidence_ids ?? [];
+            const overlap = negativeIds.filter((id) => (args.evidence_ids ?? []).includes(id));
+            if (overlap.length > 0) {
+                return `REJECTED — negative control must use independent evidence; overlap: ${overlap.join(', ')}`;
+            }
+            if (negativeIds.length > 0) {
+                const negativeCheck = await validateEvidenceIds(active.dir, negativeIds);
+                if (!negativeCheck.ok) {
+                    return `REJECTED — unknown negative-control evidence ids: ${negativeCheck.missing.join(', ')}`;
+                }
+                if ((args.negative_control ?? '').trim() === '') {
+                    return 'REJECTED — negative_control is required when negative_evidence_ids are supplied.';
+                }
+            }
+            const uncited = await uncitedClaims(active.dir, args.detail, args.evidence_ids ?? [], negativeIds);
+            if (uncited.length > 0) {
+                return [
+                    `REJECTED — detail contains claims not found verbatim in the cited evidence: ${uncited.slice(0, 8).join(', ')}`,
+                    'Copy the hash/E-id from the evidence file, or cite the evidence that contains it. Do not paraphrase or invent it.',
+                ].join('\n');
+            }
+            // Anti-pretence gates. The model can CLAIM it read references or ran a
+            // tool; these checks read the actual evidence filenames (produced by the
+            // persisting wrapper) and the session's real tool/call trace instead.
+            const discipline = loadSettings().advisory;
+            if (discipline.requireToolEvidence) {
+                const onDisk = await listEvidence(active.dir);
+                const byId = new Map(onDisk.map((entry) => [entry.id, entry.file]));
+                const citedFiles = (args.evidence_ids ?? []).map((id) => byId.get(id)).filter((file) => file !== undefined);
+                // `manual_` is the reserved prefix save_evidence stamps on every
+                // model-authored capture, so a spoofed label can never pass as tool output.
+                const selfAuthored = /^E-\d+-(manual_|save_evidence|team_report)/;
+                if (!citedFiles.some((file) => !selfAuthored.test(file))) {
+                    return [
+                        'REJECTED — every cited evidence id is self-authored (save_evidence/team_report).',
+                        `cited: ${citedFiles.join(', ') || '(none)'}`,
+                        'Run a real analysis tool first; its output is auto-captured as evidence with the tool name in the filename.',
+                    ].join('\n');
+                }
+            }
+            if (discipline.requireDocRead) {
+                const calls = toolCalls(sessionEvents(exec?.agent, 'caseflow'));
+                if (!calls.some((call) => call.name === 'read_reference')) {
+                    return [
+                        'REJECTED — no read_reference call found in this session\'s real tool trace.',
+                        'Call route_task(goal) and then read_reference(<matched refs>) before recording a conclusion;',
+                        'the claim "I read the docs" is not evidence.',
+                    ].join('\n');
+                }
+            }
+            try {
+                const recorded = await recordFinding(active.dir, {
+                    title: args.title,
+                    detail: args.detail,
+                    evidenceIds: args.evidence_ids ?? [],
+                    severity: args.severity,
+                    vulnClass: args.vuln_class,
+                    target: args.target,
+                    confidence: args.confidence,
+                    cvss: typeof args.cvss === 'number' ? args.cvss : undefined,
+                    ...(args.cvss_vector !== undefined ? { cvssVector: args.cvss_vector } : {}),
+                    status: args.status,
+                    repro: args.repro_cmd,
+                    negativeEvidenceIds: negativeIds,
+                    ...(args.negative_control !== undefined ? { negativeControl: args.negative_control } : {}),
+                    ...(args.poc_id !== undefined ? { pocId: args.poc_id } : {}),
+                });
+                const f = recorded.finding;
+                return [
+                    `${recorded.merged ? 'finding merged' : 'finding recorded'}: ${f.id} [${f.severity}/${f.status}] ${f.title}`,
+                    `evidence: ${f.evidenceIds.join(', ')} | vuln_class: ${f.vulnClass}${f.cvss !== undefined ? ` | cvss: ${f.cvss}` : ''}${f.assertedSeverity ? ` | asserted: ${f.assertedSeverity}` : ''}`,
+                    ...(recorded.notes.length > 0 ? [`rules: ${recorded.notes.join('; ')}`] : []),
+                    `repro: ${args.repro_cmd.trim()}`,
+                ].join('\n');
+            }
+            catch (error) {
+                return `REJECTED — ${error instanceof Error ? error.message : String(error)}`;
+            }
+        },
+    }));
+    ctx.tools.register(defineTool({
+        name: 'update_finding',
+        description: 'Move one finding through its triage lifecycle (candidate → verified → rejected/duplicate/wontfix) or correct its ' +
+            'severity with an audit note. Evidence and repro are immutable; use a new record_finding for new evidence.',
+        parameters: {
+            finding_id: { type: 'string', required: true, description: 'F-xxx id from the finding register.' },
+            status: { type: 'string', description: `New status: ${FINDING_STATUSES.join(' | ')}.` },
+            severity: { type: 'string', description: `Corrected severity: ${FINDING_SEVERITIES.join(' | ')}.` },
+            note: { type: 'string', description: 'Why the triage changed (written to the case timeline).' },
+        },
+        output: { schema: { type: 'string' }, render: (_a, v) => [{ type: 'text', text: v }] },
+        async execute(args, exec) {
+            const active = getCase(exec?.agent?.id);
+            if (!active)
+                return 'No active case. begin_case() first.';
+            try {
+                const updated = await updateFinding(active.dir, args.finding_id, {
+                    status: args.status,
+                    severity: args.severity,
+                    note: args.note,
+                });
+                if (updated === undefined)
+                    return `REJECTED — unknown finding id: ${args.finding_id}`;
+                return `finding updated: ${updated.id} [${updated.severity}/${updated.status}] ${updated.title}`;
+            }
+            catch (error) {
+                return `REJECTED — ${error instanceof Error ? error.message : String(error)}`;
+            }
         },
     }));
     ctx.tools.register(defineTool({
@@ -207,6 +366,7 @@ export function registerCaseflowTools(ctx) {
             statement: { type: 'string', required: true, description: 'What you think is true.' },
             expected: { type: 'string', required: true, description: 'What you expect to observe if true.' },
             test_cmd: { type: 'string', required: true, description: 'Shell command or tool call to verify.' },
+            negative_cmd: { type: 'string', description: 'Independent negative-control command (must not reproduce the expected observation).' },
             evidence_ids: { type: 'array', items: { type: 'string' }, description: 'Supporting evidence already collected.' },
         },
         output: { schema: { type: 'string' }, render: (_a, v) => [{ type: 'text', text: v }] },
@@ -222,7 +382,7 @@ export function registerCaseflowTools(ctx) {
                     'Resolve it first with update_hypothesis before creating a new one.',
                 ].join('\n');
             }
-            const h = await recordHypothesis(active.dir, args.statement, args.expected, args.test_cmd, args.evidence_ids ?? []);
+            const h = await recordHypothesis(active.dir, args.statement, args.expected, args.test_cmd, args.evidence_ids ?? [], args.negative_cmd);
             return [
                 `hypothesis ${h.id} recorded (open):`,
                 `  statement: ${h.statement}`,
@@ -314,6 +474,24 @@ export function registerCaseflowTools(ctx) {
                 ].join('\n');
             }
             await closeCase(active.dir, args.summary);
+            // Optional evidence-package manifest (T-09): a stable, machine-readable
+            // index of the closed case. It is generated, never hand-edited.
+            try {
+                const metas = await listEvidenceMeta(active.dir);
+                const findings = await loadFindings(active.dir);
+                await (await import('node:fs/promises')).writeFile(join(active.dir, 'evidence', 'manifest.json'), JSON.stringify({
+                    case: active.name,
+                    goal: active.goal,
+                    summary: args.summary ?? '',
+                    chainHead: metas.length > 0 ? metas[metas.length - 1].sha256 : null,
+                    evidence: metas,
+                    findings: findings.map((finding) => ({
+                        id: finding.id, severity: finding.severity, status: finding.status,
+                        evidenceIds: finding.evidenceIds, repro: finding.repro ?? null,
+                    })),
+                }, null, 2), 'utf8');
+            }
+            catch { /* manifest is optional; case close already succeeded */ }
             unbindCase(exec?.agent?.id);
             const stats = renderAdvisoryStats();
             return [`case closed: ${active.name}${args.summary ? ` — ${args.summary}` : ''}`, ...(stats ? ['', stats] : [])].join('\n');
@@ -343,7 +521,9 @@ export function registerCaseflowTools(ctx) {
             }
             if (!content.trim())
                 return 'nothing to save (empty content)';
-            const { id } = await saveEvidence(active.dir, args.label, content, args.label);
+            // Reserved provenance prefix: the anti-pretence gate keys off the filename,
+            // so a model-controlled label must never look like a tool name.
+            const { id } = await saveEvidence(active.dir, `manual_${args.label}`, content, args.label);
             return `[evidence: ${id} saved to ${active.name}]`;
         },
     }));

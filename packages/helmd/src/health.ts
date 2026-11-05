@@ -30,8 +30,41 @@ import { homedir } from 'node:os'
 import { join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import type { Context } from '@deepseek-ai/cordis'
-import { readShelfTools } from './ledger.js'
+import z from '@deepseek-ai/schemastery'
 import { registerHelmdApi } from './api-routes.js'
+import { saveSettings } from './settings.js'
+
+/**
+ * Composition-row Config. Exposing this schema is what puts helm-d into the
+ * DSH settings page (SettingsForms renders Config schemas of active rows).
+ * Values edited there live in the profile patch and are merged over
+ * storages/helmd/settings.json at boot — the workbench 设置 tab edits the same
+ * store for the running process.
+ */
+export const Config = z.object({
+  team: z.object({
+    autoTicket: z.boolean().default(false).description('begin_case 时自动创建 team ticket'),
+    defaultRoles: z.array(z.string()).default(['triage', 'static', 'critic', 'reporter'])
+      .description('新 ticket 的默认角色集'),
+    maxParallelWorkers: z.number().min(1).max(8).default(4).description('每 ticket 同时运行的 worker 上限'),
+    defaultWallTimeMin: z.number().min(1).max(60).default(15).description('worker 默认超时（分钟）'),
+  }),
+  intercept: z.object({
+    enabled: z.boolean().default(true).description('流式拒绝拦截总开关'),
+  }),
+  advisory: z.object({
+    autonomyPacket: z.boolean().default(true).description('case_status 附 [autonomy] 状态包'),
+    nextActionNudge: z.boolean().default(true).description('工具结果后的下一步建议'),
+    requireDocRead: z.boolean().default(true).description('record_finding 前必须真实调用过 read_reference'),
+    requireToolEvidence: z.boolean().default(true).description('引用证据至少一条来自真实工具捕获（非 save_evidence 自编）'),
+  }),
+  star: z.object({
+    popupDelaySec: z.number().min(0).max(60).default(2).description('Star 弹窗延迟秒数'),
+  }),
+  toolbox: z.object({
+    modelInstall: z.boolean().default(false).description('允许模型安装 catalog 内的外部工具（默认关闭）'),
+  }),
+})
 
 /** Legacy settings namespace; now only the client health-card key. */
 export const HELMD_HEALTH_NS = 'helmd'
@@ -62,8 +95,6 @@ export interface HelmdHealth {
    * `unavailable (…)` / `failed (…)` otherwise.
    */
   autoHeal: string
-  /** Dynamic shelf tools loaded from TOOLS.md (JSON stringified). */
-  tools: string
 }
 
 /** Preset-patch tails per host generation, newest first (mirrors gen-preset.mjs). */
@@ -224,7 +255,10 @@ function rowIds(text: string): string[] {
 export function assertPresetArtifact(deployed: string, hostStandardText: string): { ok: boolean; detail: string } {
   const hostIds = rowIds(hostStandardText)
   const deployedIds = rowIds(deployed)
-  const expected = [...hostIds, 'helmd'].sort()
+  // tool-agent-team rides INSIDE the helmd preset's plugins list (host-native
+  // experimental team tools, helmd-scoped); the agent-team service row sits at
+  // the composition top level, outside any plugins block, so rowIds never sees it.
+  const expected = [...hostIds, 'helmd', 'tool-agent-team'].sort()
   if (JSON.stringify([...deployedIds].sort()) !== JSON.stringify(expected)) {
     return {
       ok: false,
@@ -318,7 +352,6 @@ function evaluateHealthCore(): HelmdHealth {
     checkedAt: new Date().toISOString(),
     version,
     autoHeal: 'off',
-    tools: JSON.stringify(readShelfTools()),
   }
 
   const hostPath = locateHostStandard()
@@ -409,7 +442,13 @@ export function evaluateHealth(): HelmdHealth {
  * Bundle row apply. Evaluates health once per boot and exposes it over HTTP.
  * @param ctx - the host composition context this row was plugged into.
  */
-export function apply(ctx: Context): void {
+export function apply(ctx: Context, config?: unknown): void {
+  // Boot-time settings merge: the composition row's Config (edited in the DSH
+  // settings page) wins over the workbench-edited settings.json until the next
+  // workbench save. Absent config (row without a config section) keeps the file.
+  if (config !== undefined && config !== null && typeof config === 'object') {
+    try { saveSettings(config) } catch { /* settings must never block boot */ }
+  }
   // tools 必须在列：api-routes 的 /api/helmd/tools 读 ctx.tools，cordis 的注入守卫
   // 会对未声明的服务抛 `cannot get property "tools" without inject`（路由处理器
   // 接住后对外表现为 HTTP 500）。

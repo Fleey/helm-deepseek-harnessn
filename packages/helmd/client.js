@@ -145,7 +145,9 @@ exports.inject = ["slots", "sidebarRight", "sidebarRightTabs"];
 exports.apply = function apply(ctx) {
 	// --------------------------------------------------------------------------
 	// 1. Header Capsule Action Button: HelmdPresetCapsuleButton
-	//    The helmd session's workbench entry under its own slot id.
+	//    Upgrades the header's helmd label into an interactive capsule button.
+	// --------------------------------------------------------------------------
+	//    Upgrades the header's helmd label into an interactive capsule button.
 	// --------------------------------------------------------------------------
 	// Session tab-bar view (对话 / 轨迹 / helmd): the workbench as a first-class
 	// per-session conversation view. Registered/unregistered by the capsule
@@ -261,11 +263,6 @@ exports.apply = function apply(ctx) {
 		// The right sidebar is the primary workbench surface. The popover is only
 		// a fallback for hosts without the sidebarRight service — opening both at
 		// once duplicated the whole panel over the conversation.
-		// Capsule trigger: the right sidebar is the primary workbench surface
-		// (upstream); the popover is only a fallback for hosts without the
-		// sidebarRight service. On the fork the session tab (conversation.view
-		// "helmd") is a parallel surface that stays reachable from the tab bar,
-		// so the capsule does not try to focus it — the two never open together.
 		function handleToggleWorkbench(e) {
 			e.preventDefault();
 			e.stopPropagation();
@@ -330,7 +327,7 @@ exports.apply = function apply(ctx) {
 					padding: "0 8px 0 6px",
 					borderRadius: 6,
 					border: `1px solid ${open || active ? "var(--dsw-alias-border-l1)" : hovered ? "var(--dsw-alias-border-l4)" : "var(--dsw-alias-border-l3)"}`,
-					background: open || active ? "var(--dsw-alias-fill-tsp-active)" : hovered ? "var(--dsw-alias-fill-tsp-primary)" : "var(--dsw-alias-fill-tsp-secondary)",
+					background: open || active ? "var(--dsw-alias-interactive-bg-active)" : hovered ? "var(--dsw-alias-interactive-bg-hover)" : "var(--dsw-alias-bg-layer-1)",
 					color: hovered || open ? "var(--dsw-alias-label-primary)" : "var(--dsw-alias-label-secondary)",
 					fontSize: 12,
 					fontWeight: 500,
@@ -358,53 +355,40 @@ exports.apply = function apply(ctx) {
 						fontWeight: 600,
 						color: "var(--dsw-alias-label-primary)",
 					},
-				}, "helmd"),
-				h("span", {
-					style: {
-						fontSize: 10,
-						lineHeight: "13px",
-						padding: "1px 4px",
-						borderRadius: 4,
-						background: "var(--dsw-alias-state-success-tertiary)",
-						color: "var(--dsw-alias-state-success-primary)",
-						fontWeight: 500,
-						letterSpacing: "0.2px",
-					},
 				}, "工作台"),
 				h(ChevronIcon, { open: open }),
 			),
-			open ? h("div", {
-				className: "helmd-workbench-popover",
-				style: {
-					position: "absolute",
-					top: "calc(100% + 6px)",
-					left: 0,
-					zIndex: 1000,
-					width: 470,
-					maxWidth: "min(470px, 92vw)",
-					height: 580,
-					maxHeight: "min(580px, 84vh)",
-					borderRadius: 16,
-					background: "var(--dsw-alias-bg-layer-1)",
-					border: "1px solid var(--dsw-alias-border-l1)",
-					boxShadow: "0 16px 36px rgba(0,0,0,0.45), 0 4px 12px rgba(0,0,0,0.25)",
-					overflow: "hidden",
-					display: "flex",
-					flexDirection: "column",
-					animation: "helmd-fade-in .15s ease-out",
+				open ? h("div", {
+					className: "helmd-workbench-popover",
+					style: {
+						position: "absolute",
+						top: "calc(100% + 6px)",
+						left: 0,
+						zIndex: 1000,
+						width: 470,
+						maxWidth: "min(470px, 92vw)",
+						height: 580,
+						maxHeight: "min(580px, 84vh)",
+						borderRadius: 16,
+						background: "var(--dsw-alias-bg-layer-1)",
+						border: "1px solid var(--dsw-alias-border-l1)",
+						boxShadow: "0 16px 36px rgba(0,0,0,0.45), 0 4px 12px rgba(0,0,0,0.25)",
+						overflow: "hidden",
+						display: "flex",
+						flexDirection: "column",
+						animation: "helmd-fade-in .15s ease-out",
+					},
 				},
-			},
-				h(HelmdWorkbenchPanel, {
-					sessionId: props.sessionId,
-					onClose: () => setOpen(false),
-				})
-			) : null
-		);
-	}
+					h(HelmdWorkbenchPanel, {
+						sessionId: props.sessionId,
+						onClose: () => setOpen(false),
+					})
+				) : null
+			);
+		}
 
 	// Keep the official agent-preset label. The capsule is a separate workbench
-	// action, so non-helmd sessions are never shadowed by this plugin
-	// (upstream fix e5a68f8: own id instead of shadowing "agent-preset").
+	// action, so non-helmd sessions are never shadowed by this plugin.
 	ctx.slots.inject("conversation.session.header.actions", function* () {
 		yield ctx.slots.register({
 			name: "conversation.session.header.actions",
@@ -474,6 +458,20 @@ exports.apply = function apply(ctx) {
 			};
 		},
 	};
+
+	const SEVERITY_COLOR = {
+		critical: "var(--dsw-alias-state-error-primary)",
+		high: "var(--dsw-alias-state-warn-primary)",
+		medium: "var(--dsw-alias-state-business-primary)",
+		low: "var(--dsw-alias-label-secondary)",
+		info: "var(--dsw-alias-label-tertiary)",
+	};
+	function severitySummary(findings) {
+		if (!Array.isArray(findings) || findings.length === 0) return "0";
+		var counts = { critical: 0, high: 0, medium: 0, low: 0, info: 0 };
+		findings.forEach(function (f) { if (counts[f.severity] !== undefined) counts[f.severity] += 1; });
+		return findings.length + " · C" + counts.critical + " H" + counts.high + " M" + counts.medium + " L" + counts.low;
+	}
 
 	function CaseIcon() {
 		return h("svg", {
@@ -547,7 +545,7 @@ exports.apply = function apply(ctx) {
 								style: {
 									display: "flex", alignItems: "baseline", gap: 8,
 									padding: "5px 6px", borderRadius: "var(--dsw-radius-xs)",
-									background: "var(--dsw-alias-fill-tsp-secondary)",
+									background: "var(--dsw-alias-bg-layer-1)",
 								},
 							},
 								h("span", { style: { fontFamily: CODE, fontSize: 11, color: TONE.muted, flex: "none" } }, c.status || "?"),
@@ -558,7 +556,11 @@ exports.apply = function apply(ctx) {
 										overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
 									},
 								}, c.name),
-								h("span", { style: { fontSize: 11, color: TONE.muted, flex: "none" } }, (c.evidenceCount || 0) + " E")
+								h("span", { style: { fontSize: 11, color: TONE.muted, flex: "none" } },
+									(c.evidenceCount || 0) + " E" +
+									(c.findingsBySeverity ? " · C" + c.findingsBySeverity.critical + " H" + c.findingsBySeverity.high : "") +
+									(c.staleFindings ? " · STALE " + c.staleFindings : "")
+								)
 							);
 						})
 					)
@@ -571,6 +573,27 @@ exports.apply = function apply(ctx) {
 		var hyps = cd.hypotheses || [];
 		var findings = Array.isArray(props.findings) ? props.findings : [];
 		var evidence = Array.isArray(props.evidence) ? props.evidence : [];
+		var severityFilterState = React.useState("all"); var severityFilter = severityFilterState[0]; var setSeverityFilter = severityFilterState[1];
+		var statusFilterState = React.useState("all"); var statusFilter = statusFilterState[0]; var setStatusFilter = statusFilterState[1];
+		var findingBusyState = React.useState(""); var findingBusy = findingBusyState[0]; var setFindingBusy = findingBusyState[1];
+		var severityRank = { critical: 5, high: 4, medium: 3, low: 2, info: 1 };
+		var visibleFindings = findings
+			.filter(function (f) { return (severityFilter === "all" || f.severity === severityFilter) && (statusFilter === "all" || f.status === statusFilter); })
+			.slice().sort(function (a, b) { return (severityRank[b.severity] || 0) - (severityRank[a.severity] || 0) || String(a.id || "").localeCompare(String(b.id || "")); });
+		var criticalCount = findings.filter(function (f) { return f.severity === "critical"; }).length;
+		var highCount = findings.filter(function (f) { return f.severity === "high"; }).length;
+		function patchFinding(f, status) {
+			if (!props.sessionId) return;
+			setFindingBusy(f.id + ":" + status);
+			fetch("/api/helmd/case/findings", {
+				method: "POST", headers: { "content-type": "application/json" },
+				body: JSON.stringify({ sessionId: props.sessionId, id: f.id, status: status, note: "workbench triage" }),
+			}).then(function (r) { return r.json(); }).then(function (res) {
+				if (!res || !res.ok) throw new Error((res && res.error) || "更新失败");
+				if (props.onRefresh) props.onRefresh();
+			}).catch(function (e) { if (props.onNotice) props.onNotice(String(e.message || e)); })
+				.then(function () { setFindingBusy(""); });
+		}
 		var hypRows = hyps.map(function (hh) {
 			var color = hh.status === "confirmed" ? TONE.success
 				: hh.status === "refuted" ? TONE.error
@@ -620,12 +643,17 @@ exports.apply = function apply(ctx) {
 					h("span", { style: S.pill(TONE.success) }, "OPEN")
 				),
 				cd.goal ? h("div", { style: Object.assign({}, S.body, { marginTop: 6 }) }, cd.goal) : null,
-				h("div", { style: { display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginTop: 12 } },
+				h("div", { style: { display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 10, marginTop: 12 } },
 					h(StatTile, { label: "Evidence", value: cd.evidenceCount || 0, tone: TONE.info }),
 					h(StatTile, {
 						label: "Open hypotheses",
 						value: cd.openHypotheses || 0,
 						tone: (cd.openHypotheses || 0) > 0 ? TONE.warn : TONE.success,
+					}),
+					h(StatTile, {
+						label: "Critical / High",
+						value: criticalCount + " / " + highCount,
+						tone: criticalCount > 0 ? TONE.error : highCount > 0 ? TONE.warn : TONE.success,
 					})
 				)
 			),
@@ -642,13 +670,22 @@ exports.apply = function apply(ctx) {
 					})
 			),
 			h("div", { style: S.card },
-				h("div", { style: { display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: findings.length ? 6 : 0 } },
+				h("div", { style: { display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: findings.length ? 6 : 0, gap: 8, flexWrap: "wrap" } },
 					h("span", { style: S.title }, "结论"),
-					h("span", { style: S.caption }, String(findings.length))
+					h("span", { style: S.caption }, severitySummary(findings)),
+					h("select", {
+						value: severityFilter, onChange: function (e) { setSeverityFilter(e.target.value); },
+						style: { height: 24, borderRadius: 4, border: "0.5px solid var(--dsw-alias-border-l3)", background: "var(--dsw-alias-bg-layer-1)", color: "var(--dsw-alias-label-primary)", fontSize: 11 },
+					}, ["all", "critical", "high", "medium", "low", "info"].map(function (v) { return h("option", { key: v, value: v }, v === "all" ? "全部等级" : v); })),
+					h("select", {
+						value: statusFilter, onChange: function (e) { setStatusFilter(e.target.value); },
+						style: { height: 24, borderRadius: 4, border: "0.5px solid var(--dsw-alias-border-l3)", background: "var(--dsw-alias-bg-layer-1)", color: "var(--dsw-alias-label-primary)", fontSize: 11 },
+					}, ["all", "candidate", "verified", "rejected", "duplicate", "wontfix"].map(function (v) { return h("option", { key: v, value: v }, v === "all" ? "全部状态" : v); }))
 				),
 				findings.length > 0
 					? h("div", { style: { display: "flex", flexDirection: "column", gap: 6 } },
-						findings.map(function (f, index) {
+						visibleFindings.map(function (f, index) {
+							var sevColor = SEVERITY_COLOR[f.severity] || TONE.muted;
 							return h("div", {
 								key: "finding-" + index,
 								style: {
@@ -657,12 +694,34 @@ exports.apply = function apply(ctx) {
 									border: "0.5px solid var(--dsw-alias-border-l1)",
 								},
 							},
-								h("div", { style: { fontSize: 12, fontWeight: 500, color: "var(--dsw-alias-label-primary)" } }, f.title),
+								h("div", { style: { display: "flex", alignItems: "center", gap: 6 } },
+									h("span", { style: S.pill(sevColor) }, String(f.severity || "info").toUpperCase()),
+									f.status ? h("span", { style: S.pill(TONE.muted, true) }, f.status) : null,
+									f.id ? h("span", { style: { fontFamily: CODE, fontSize: 10, color: TONE.muted } }, f.id) : null,
+									h("span", { style: { flex: 1 } }),
+									f.seenCount > 1 ? h("span", { style: S.caption }, "×" + f.seenCount) : null
+								),
+								h("div", { style: { marginTop: 3, fontSize: 12, fontWeight: 500, color: "var(--dsw-alias-label-primary)" } }, f.title),
 								f.detail ? h("div", { style: { marginTop: 2, fontSize: 11, lineHeight: "17px", color: "var(--dsw-alias-label-secondary)", whiteSpace: "pre-wrap" } }, f.detail.slice(0, 240)) : null,
 								f.evidence ? h("div", { style: { marginTop: 3, fontFamily: CODE, fontSize: 10.5, color: TONE.muted } }, f.evidence) : null,
 								f.repro
 									? h("div", { style: { marginTop: 2, fontFamily: CODE, fontSize: 10.5, color: TONE.muted } }, "repro: " + f.repro)
-									: h("div", { style: { marginTop: 2, fontSize: 10.5, color: TONE.warn } }, "repro: MISSING")
+									: h("div", { style: { marginTop: 2, fontSize: 10.5, color: TONE.warn } }, "repro: MISSING"),
+								f.id ? h("div", { style: { display: "flex", gap: 5, marginTop: 5, flexWrap: "wrap" } },
+									["verified", "rejected", "duplicate", "wontfix"].map(function (status) {
+										var busy = findingBusy === f.id + ":" + status;
+										return h("button", {
+											key: status, type: "button", disabled: !!findingBusy || f.status === status,
+											onClick: function () { patchFinding(f, status); },
+											style: {
+												height: 20, padding: "0 6px", borderRadius: 3,
+												border: "0.5px solid var(--dsw-alias-border-l3)", background: "transparent",
+												color: f.status === status ? TONE.muted : "var(--dsw-alias-label-secondary)",
+												fontSize: 10, cursor: findingBusy ? "default" : "pointer",
+											},
+										}, busy ? "…" : status);
+									})
+								) : null
 							);
 						})
 					)
@@ -696,7 +755,694 @@ exports.apply = function apply(ctx) {
 		);
 	}
 
-	// ── Tab 2: 破甲档位（热切换） ────────────────────────────────
+	// ── Tab: 工具（外部工具 catalog / 安装状态） ─────────────────
+	function ToolsTab(props) {
+		var entries = Array.isArray(props.catalog) ? props.catalog : [];
+		var noticeState = React.useState("");
+		var notice = noticeState[0]; var setNotice = noticeState[1];
+		var busyState = React.useState("");
+		var busy = busyState[0]; var setBusy = busyState[1];
+		var choiceState = React.useState(null);
+		var choice = choiceState[0]; var setChoice = choiceState[1];
+		var queryState = React.useState("");
+		var query = queryState[0]; var setQuery = queryState[1];
+
+		function post(path, body) {
+			return fetch(path, {
+				method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body),
+			}).then(function (r) { return r.json(); }).then(function (res) {
+				if (!res || !res.ok) throw new Error((res && res.error) || "请求失败");
+				return res.data;
+			});
+		}
+		function refresh(message) {
+			setBusy(""); setChoice(null); setNotice(message || "");
+			if (props.onRefresh) props.onRefresh();
+		}
+		function doInstall(id, assetName) {
+			setBusy(id);
+			post("/api/helmd/tools/install", { id: id, assetName: assetName })
+				.then(function (tool) { refresh("已安装 " + tool.name + " " + tool.version); })
+				.catch(function (e) { setBusy(""); setNotice(String(e.message || e)); });
+		}
+		function doUpdate(id, assetName) {
+			setBusy(id);
+			post("/api/helmd/tools/update", { id: id, assetName: assetName })
+				.then(function (tool) { refresh("已更新 " + tool.name + " " + tool.version); })
+				.catch(function (e) { setBusy(""); setNotice(String(e.message || e)); });
+		}
+		function pickRelease(id) {
+			var entry = entries.filter(function (e) { return e.id === id; })[0];
+			if (entry && entry.asset) { doInstall(id, entry.asset); return; }
+			if (entry && entry.assetPattern) { doInstall(id); return; }
+			setBusy(id); setNotice("");
+			fetch("/api/helmd/tools/releases?id=" + encodeURIComponent(id))
+				.then(function (r) { return r.json(); })
+				.then(function (res) {
+					if (!res || !res.ok) throw new Error((res && res.error) || "读取 release 失败");
+					var assets = (res.data.assets || []).filter(function (a) { return a.digest; });
+					if (assets.length === 0) throw new Error("该 release 没有带 sha256 摘要的资产，请手动安装");
+					if (assets.length === 1) { doInstall(id, assets[0].name); return; }
+					setBusy(""); setChoice({ id: id, tag: res.data.tag, assets: assets });
+				})
+				.catch(function (e) { setBusy(""); setNotice(String(e.message || e)); });
+		}
+		function uninstall(entry) {
+			if (!window.confirm("卸载 " + entry.name + "？只删除 helm-d 管理的目录，不影响系统 PATH。")) return;
+			setBusy(entry.id);
+			post("/api/helmd/tools/uninstall", { id: entry.id })
+				.then(function (tool) { refresh("已卸载 " + tool.name); })
+				.catch(function (e) { setBusy(""); setNotice(String(e.message || e)); });
+		}
+
+		var filtered = entries.filter(function (e) {
+			var q = String(query || "").toLowerCase();
+			return q === "" || (e.id + " " + e.name + " " + e.category + " " + e.purpose).toLowerCase().indexOf(q) >= 0;
+		}).sort(function (a, b) {
+			return String(a.category).localeCompare(String(b.category)) || String(a.name).localeCompare(String(b.name));
+		});
+		var installed = entries.filter(function (e) { return e.health && e.health.installed; }).length;
+
+		return h("div", { style: { display: "flex", flexDirection: "column", gap: 10 } },
+			notice ? h("div", { style: { padding: "7px 9px", borderRadius: 4, fontSize: 11.5, lineHeight: "17px", color: TONE.info, background: "var(--dsw-alias-bg-layer-1)" } }, notice) : null,
+			h("div", { style: S.card },
+				h("div", { style: { display: "flex", alignItems: "center", gap: 8 } },
+					h("span", { style: S.title }, "外部工具"),
+					h("span", { style: S.caption }, installed + " / " + entries.length + " 已安装")
+				),
+				h("div", { style: Object.assign({}, S.caption, { marginTop: 4 }) },
+					"只列有 GitHub 仓库的工具；安装来源固定为对应仓库的 latest release，必须带 sha256 摘要。pip/manual 条目只给命令，不代执行。"
+				),
+				h("input", {
+					type: "text", value: query, placeholder: "过滤：jadx / android / frida …",
+					onChange: function (e) { setQuery(e.target.value); },
+					style: {
+						width: "100%", height: 28, marginTop: 8, padding: "0 8px", borderRadius: "var(--dsw-radius-sm)",
+						border: "0.5px solid var(--dsw-alias-border-l3)", background: "var(--dsw-alias-bg-layer-1)",
+						color: "var(--dsw-alias-label-primary)", fontSize: 12.5, outline: "none", boxSizing: "border-box",
+					},
+				})
+			),
+			filtered.length === 0 ? h("div", { style: S.card }, h(EmptyState, { title: "没有匹配的工具", hint: "Adjusted filter or catalog unavailable." })) : null,
+			filtered.map(function (entry) {
+				var health = entry.health || {};
+				var isInstalled = !!health.installed;
+				var pending = busy === entry.id;
+				return h("div", { key: entry.id, style: S.card },
+					h("div", { style: { display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" } },
+						h("span", { style: { fontSize: 13, fontWeight: 600 } }, entry.name),
+						h("span", { style: S.pill(TONE.muted, true) }, entry.category),
+						entry.license ? h("span", { style: S.pill(TONE.muted, true) }, entry.license) : null,
+						h("span", { style: S.pill(entry.kind === "release" ? TONE.info : TONE.muted, entry.kind !== "release") }, entry.kind),
+						h("span", { style: S.pill(isInstalled ? TONE.success : TONE.muted, !isInstalled) }, isInstalled ? "已安装 " + (health.version || "") : "未安装"),
+						h("span", { style: { flex: 1 } }),
+						entry.repo ? h("a", { href: entry.repo, target: "_blank", rel: "noopener noreferrer", style: Object.assign({}, S.caption, { color: TONE.info }) }, "GitHub") : null
+					),
+					h("div", { style: Object.assign({}, S.body, { marginTop: 4 }) }, entry.purpose),
+					h("div", { style: Object.assign({}, S.caption, { marginTop: 2, fontFamily: CODE }) }, "usage: " + entry.usage),
+					health.path ? h("div", { style: Object.assign({}, S.caption, { fontFamily: CODE }) }, health.path) : null,
+					h("div", { style: { display: "flex", gap: 6, marginTop: 6, alignItems: "center" } },
+						isInstalled && entry.kind === "release" ? h("button", {
+							type: "button", className: "hm-btn", disabled: pending,
+							onClick: function () { doUpdate(entry.id); },
+							style: { height: 24, padding: "0 8px", borderRadius: 4, border: "0.5px solid var(--dsw-alias-border-l3)", background: "transparent", color: TONE.info, fontSize: 11, cursor: "pointer" },
+						}, pending ? "处理中" : "更新") : null,
+						isInstalled
+							? h("button", {
+								type: "button", className: "hm-btn", onClick: function () { uninstall(entry); }, disabled: pending,
+								style: { height: 24, padding: "0 8px", borderRadius: 4, border: "0.5px solid var(--dsw-alias-border-l3)", background: "transparent", color: TONE.warn, fontSize: 11, cursor: "pointer" },
+							}, pending ? "处理中" : "卸载")
+							: h("button", {
+								type: "button", className: "hm-btn", disabled: pending || entry.kind !== "release",
+								onClick: function () { entry.kind === "release" ? pickRelease(entry.id) : setNotice((entry.installHint || entry.usage)); },
+								style: { height: 24, padding: "0 10px", borderRadius: 4, border: "0.5px solid var(--dsw-alias-border-l3)", background: "transparent", color: entry.kind === "release" ? "var(--dsw-alias-label-secondary)" : TONE.muted, fontSize: 11, cursor: entry.kind === "release" ? "pointer" : "default" },
+							}, pending ? "安装中" : (entry.kind === "release" ? "安装" : "查看命令")),
+						entry.kind !== "release" && entry.installHint ? h("span", { style: Object.assign({}, S.caption, { fontFamily: CODE }) }, entry.installHint) : null
+					),
+					choice && choice.id === entry.id ? h("div", { style: { marginTop: 8, display: "flex", gap: 6, alignItems: "center" } },
+						h("span", { style: S.caption }, "选择资产（" + choice.tag + "）"),
+						h("select", {
+							defaultValue: choice.assets[0].name,
+							onChange: function (e) { choice.assets[0].name = e.target.value; },
+							style: { height: 26, borderRadius: 4, border: "0.5px solid var(--dsw-alias-border-l3)", background: "var(--dsw-alias-bg-layer-1)", color: "var(--dsw-alias-label-primary)", fontSize: 11 },
+						}, choice.assets.map(function (a) { return h("option", { key: a.name, value: a.name }, a.name + " (" + Math.round(a.size / 1024) + " KB)"); })),
+						h("button", {
+							type: "button", className: "hm-btn", onClick: function () { doInstall(choice.id, choice.assets[0].name); },
+							style: { height: 24, padding: "0 8px", borderRadius: 4, border: "0.5px solid var(--dsw-alias-border-l3)", background: "transparent", color: "var(--dsw-alias-label-secondary)", fontSize: 11, cursor: "pointer" },
+						}, "确认安装")
+					) : null
+				);
+			})
+		);
+	}
+
+	// ── Tab: 设置（runtime settings store + DSH 设置页同源） ─────
+	var TEAM_ROLE_LIST = ["orchestrator", "triage", "static", "dynamic", "decoy-audit", "critic", "reporter"];
+	function SettingsRow(props) {
+		return h("div", { style: { display: "flex", alignItems: "flex-start", gap: 10, padding: "8px 0" } },
+			h("div", { style: { width: 118, flex: "none" } },
+				h("div", { style: { fontSize: 12.5, color: "var(--dsw-alias-label-primary)" } }, props.label),
+				props.hint ? h("div", { style: Object.assign({}, S.caption, { marginTop: 1 }) }, props.hint) : null
+			),
+			h("div", { style: { flex: 1, minWidth: 0 } }, props.children)
+		);
+	}
+	function SettingsToggle(props) {
+		return h("button", {
+			type: "button", onClick: function () { props.onChange(!props.checked); },
+			"aria-pressed": props.checked ? "true" : "false",
+			style: {
+				display: "inline-flex", alignItems: "center", gap: 6, padding: "3px 10px 3px 6px",
+				borderRadius: 999, cursor: "pointer", fontSize: 12,
+				border: "0.5px solid var(--dsw-alias-border-l3)",
+				background: props.checked ? "color-mix(in srgb, " + TONE.success + " 14%, transparent)" : "var(--dsw-alias-bg-layer-1)",
+				color: props.checked ? TONE.success : "var(--dsw-alias-label-secondary)",
+			},
+		},
+			h("span", { style: { width: 8, height: 8, borderRadius: 999, background: props.checked ? TONE.success : "var(--dsw-alias-label-tertiary)" } }),
+			props.checked ? "开" : "关"
+		);
+	}
+	function SettingsNumber(props) {
+		return h("input", {
+			type: "number", min: props.min, max: props.max, step: 1,
+			value: String(props.value), onChange: function (e) {
+				var n = Number(e.target.value);
+				props.onChange(Number.isFinite(n) ? n : props.min);
+			},
+			style: {
+				width: 84, height: 26, padding: "0 8px", borderRadius: "var(--dsw-radius-sm)",
+				border: "0.5px solid var(--dsw-alias-border-l3)", background: "var(--dsw-alias-bg-layer-1)",
+				color: "var(--dsw-alias-label-primary)", fontSize: 12.5, outline: "none",
+			},
+		});
+	}
+	function SettingsTab(props) {
+		var remote = props.settings;
+		var formState = React.useState(null);
+		var form = formState[0]; var setForm = formState[1];
+		var noticeState = React.useState("");
+		var notice = noticeState[0]; var setNotice = noticeState[1];
+		var savingState = React.useState(false);
+		var saving = savingState[0]; var setSaving = savingState[1];
+		React.useEffect(function () {
+			if (!form && remote) setForm(JSON.parse(JSON.stringify(remote)));
+		}, [remote]);
+		function setIn(path, value) {
+			setForm(function (prev) {
+				if (!prev) return prev;
+				var next = JSON.parse(JSON.stringify(prev));
+				var seg = path.split(".");
+				var obj = next;
+				for (var i = 0; i < seg.length - 1; i++) obj = obj[seg[i]];
+				obj[seg[seg.length - 1]] = value;
+				return next;
+			});
+		}
+		function toggleRole(role) {
+			setForm(function (prev) {
+				if (!prev) return prev;
+				var next = JSON.parse(JSON.stringify(prev));
+				var list = next.team.defaultRoles || [];
+				next.team.defaultRoles = list.indexOf(role) >= 0
+					? list.filter(function (r) { return r !== role; })
+					: list.concat([role]);
+				return next;
+			});
+		}
+		function save() {
+			if (!form) return;
+			setSaving(true); setNotice("");
+			fetch("/api/helmd/settings", {
+				method: "POST", headers: { "content-type": "application/json" },
+				body: JSON.stringify(form),
+			}).then(function (r) { return r.json(); }).then(function (res) {
+				if (res && res.ok) { setForm(res.data); setNotice("已保存，立即生效（DSH 设置页的修改在重启时并入）。"); if (props.onRefresh) props.onRefresh(); }
+				else setNotice((res && res.error) || "保存失败");
+			}).catch(function (e) { setNotice(String((e && e.message) || e)); })
+				.then(function () { setSaving(false); });
+		}
+		if (!form) {
+			return h("div", { style: S.card }, h(EmptyState, { title: "设置读取中…", hint: "等待 /api/helmd/settings。" }));
+		}
+		var roles = form.team.defaultRoles || [];
+		var inputStyle = {
+			width: "100%", height: 28, padding: "0 8px", borderRadius: "var(--dsw-radius-sm)",
+			border: "0.5px solid var(--dsw-alias-border-l3)", background: "var(--dsw-alias-bg-layer-1)",
+			color: "var(--dsw-alias-label-primary)", fontSize: 12.5, outline: "none", boxSizing: "border-box",
+		};
+		return h("div", { style: { display: "flex", flexDirection: "column", gap: 10 } },
+			notice ? h("div", { style: { padding: "7px 9px", borderRadius: 4, fontSize: 11.5, color: TONE.info, background: "var(--dsw-alias-bg-layer-1)" } }, notice) : null,
+			h("div", { style: S.card },
+				h("div", { style: { display: "flex", alignItems: "center", justifyContent: "space-between" } },
+					h("span", { style: S.title }, "Team 协作"),
+					h("span", { style: S.caption }, "worker / ticket")
+				),
+				h("div", { style: { marginTop: 4 } },
+					h(SettingsRow, { label: "begin_case 自动建单", hint: "每次开案自动创建 team ticket" },
+						h(SettingsToggle, { checked: !!form.team.autoTicket, onChange: function (v) { setIn("team.autoTicket", v); } })
+					),
+					h(SettingsRow, { label: "默认角色集", hint: "新 ticket 预含的角色" },
+						h("div", { style: { display: "flex", flexWrap: "wrap", gap: 6 } },
+							TEAM_ROLE_LIST.map(function (role) {
+								var on = roles.indexOf(role) >= 0;
+								return h("button", {
+									key: role, type: "button", onClick: function () { toggleRole(role); },
+									style: {
+										padding: "2px 8px", borderRadius: 4, fontSize: 11, cursor: "pointer",
+										border: "0.5px solid " + (on ? TONE.info : "var(--dsw-alias-border-l3)"),
+										background: on ? "color-mix(in srgb, " + TONE.info + " 12%, transparent)" : "transparent",
+										color: on ? TONE.info : "var(--dsw-alias-label-secondary)",
+									},
+								}, role);
+							})
+						)
+					),
+					h(SettingsRow, { label: "并发 worker 上限", hint: "每 ticket 同时运行数（1-8）" },
+						h(SettingsNumber, { value: form.team.maxParallelWorkers, min: 1, max: 8, onChange: function (v) { setIn("team.maxParallelWorkers", v); } })
+					),
+						h(SettingsRow, { label: "默认 worker 超时", hint: "分钟（1-60），budget artifact 可覆盖" },
+							h(SettingsNumber, { value: form.team.defaultWallTimeMin, min: 1, max: 60, onChange: function (v) { setIn("team.defaultWallTimeMin", v); } })
+						),
+						h(SettingsRow, { label: "动态 worker 高风险命令", hint: "ask 走审批队列；deny 直接拒绝；allow 放行" },
+							h("select", {
+								value: (form.team && form.team.riskApproval) || "ask",
+								onChange: function (e) { setIn("team.riskApproval", e.target.value); },
+								style: { height: 24, borderRadius: 4, border: "0.5px solid var(--dsw-alias-border-l3)", background: "var(--dsw-alias-bg-layer-1)", color: "var(--dsw-alias-label-primary)", fontSize: 11 },
+							}, ["ask", "deny", "allow"].map(function (v) { return h("option", { key: v, value: v }, v); }))
+						),
+						h(SettingsRow, { label: "审批超时", hint: "秒（1-3600）；超时即拒" },
+							h(SettingsNumber, { value: (form.team && form.team.approvalTimeoutSec) || 300, min: 1, max: 3600, onChange: function (v) { setIn("team.approvalTimeoutSec", v); } })
+						)
+				)
+			),
+			h("div", { style: S.card },
+				h("div", { style: S.title }, "拦截"),
+				h("div", { style: { marginTop: 4 } },
+					h(SettingsRow, { label: "流式拒绝拦截", hint: "关闭后不再改写/重试拒答流" },
+						h(SettingsToggle, { checked: !!form.intercept.enabled, onChange: function (v) { setIn("intercept.enabled", v); } })
+					)
+				)
+			),
+			h("div", { style: S.card },
+				h("div", { style: S.title }, "自主辅助"),
+				h("div", { style: { marginTop: 4 } },
+					h(SettingsRow, { label: "[autonomy] 状态包", hint: "case_status 附假设/证据/下一步" },
+						h(SettingsToggle, { checked: !!form.advisory.autonomyPacket, onChange: function (v) { setIn("advisory.autonomyPacket", v); } })
+					),
+					h(SettingsRow, { label: "下一步建议", hint: "工具结果后的 L4-lite 提示" },
+						h(SettingsToggle, { checked: !!form.advisory.nextActionNudge, onChange: function (v) { setIn("advisory.nextActionNudge", v); } })
+					),
+					h(SettingsRow, { label: "结论前必读文档", hint: "record_finding 要求真实调用过 read_reference（防假装）" },
+						h(SettingsToggle, { checked: !!form.advisory.requireDocRead, onChange: function (v) { setIn("advisory.requireDocRead", v); } })
+					),
+					h(SettingsRow, { label: "证据须来自工具", hint: "引用证据至少一条为真实工具输出（save_evidence 自编不算）" },
+						h(SettingsToggle, { checked: !!form.advisory.requireToolEvidence, onChange: function (v) { setIn("advisory.requireToolEvidence", v); } })
+					),
+					h(SettingsRow, { label: "允许模型安装工具", hint: "只允许 catalog 内的 GitHub release；默认仅 WebUI 操作者安装" },
+						h(SettingsToggle, { checked: !!(form.toolbox && form.toolbox.modelInstall), onChange: function (v) { setIn("toolbox.modelInstall", v); } })
+					)
+				)
+			),
+			h("div", { style: S.card },
+				h("div", { style: S.title }, "审批队列"),
+				h("div", { style: { marginTop: 4 } },
+					(Array.isArray(props.approvals) ? props.approvals : []).filter(function (a) { return a.status === "pending" || a.status === "approved"; }).slice(0, 8).map(function (a) {
+						return h("div", { key: a.id, style: { display: "flex", alignItems: "center", gap: 6, padding: "5px 0", borderBottom: "0.5px solid var(--dsw-alias-border-l1)" } },
+							h("span", { style: { fontFamily: CODE, fontSize: 10.5, color: TONE.muted } }, a.id),
+							h("span", { style: { flex: 1, minWidth: 0, fontSize: 11, color: "var(--dsw-alias-label-secondary)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" } }, a.summary || a.tool),
+							h("span", { style: S.pill(a.status === "approved" ? TONE.success : TONE.warn, true) }, a.status),
+							h("button", {
+								type: "button", disabled: a.status !== "pending",
+								onClick: function () {
+									fetch("/api/helmd/approvals", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ id: a.id, decision: "approve" }) })
+										.then(function () { if (props.onRefresh) props.onRefresh(); });
+								},
+								style: { height: 20, padding: "0 6px", borderRadius: 3, border: "0.5px solid var(--dsw-alias-border-l3)", background: "transparent", color: TONE.success, fontSize: 10, cursor: "pointer" },
+							}, "允许"),
+							h("button", {
+								type: "button", disabled: a.status !== "pending",
+								onClick: function () {
+									fetch("/api/helmd/approvals", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ id: a.id, decision: "deny" }) })
+										.then(function () { if (props.onRefresh) props.onRefresh(); });
+								},
+								style: { height: 20, padding: "0 6px", borderRadius: 3, border: "0.5px solid var(--dsw-alias-border-l3)", background: "transparent", color: TONE.warn, fontSize: 10, cursor: "pointer" },
+							}, "拒绝")
+						);
+					}),
+					(!props.approvals || props.approvals.filter(function (a) { return a.status === "pending" || a.status === "approved"; }).length === 0)
+						? h("div", { style: S.caption }, "没有待审批的高风险命令")
+						: null
+				)
+			),
+			h("div", { style: { display: "flex", alignItems: "center", gap: 8 } },
+				h("button", {
+					type: "button", className: "hm-btn", onClick: save, disabled: saving,
+					style: {
+						height: 28, padding: "0 14px", borderRadius: "var(--dsw-radius-sm)", cursor: saving ? "default" : "pointer",
+						border: "0.5px solid var(--dsw-alias-border-l3)", background: "var(--dsw-alias-bg-layer-1)",
+						color: "var(--dsw-alias-label-primary)", fontSize: 12.5,
+					},
+				}, saving ? "保存中…" : "保存设置"),
+				h("span", { style: S.caption }, "同时写 storages/helmd/settings.json；DSH 设置页改的是启动配置")
+			)
+		);
+	}
+
+	// ── Tab 2: Team（本地多 agent 协作 + 进化） ─────────────────
+	function TeamTab(props) {
+		var team = props.teamData || {};
+		var tickets = Array.isArray(team.tickets) ? team.tickets : [];
+		var versions = props.versions || {};
+		var revisions = Array.isArray(versions.revisions) ? versions.revisions : [];
+		var activeMap = (versions.status && versions.status.active) || {};
+		var selectedState = React.useState(null);
+		var selectedId = selectedState[0]; var setSelectedId = selectedState[1];
+		var noticeState = React.useState("");
+		var notice = noticeState[0]; var setNotice = noticeState[1];
+		var busyState = React.useState("");
+		var busy = busyState[0]; var setBusy = busyState[1];
+		var goalState = React.useState("");
+		var goalInput = goalState[0]; var setGoalInput = goalState[1];
+		var steerState = React.useState({});
+		var steerTexts = steerState[0]; var setSteerTexts = steerState[1];
+		var newRolesState = React.useState(["triage", "static", "critic", "reporter"]);
+		var newRoles = newRolesState[0]; var setNewRoles = newRolesState[1];
+		React.useEffect(function () {
+			var cd = props.caseData;
+			if (!goalInput && cd && cd.active && cd.goal) setGoalInput(cd.goal);
+		}, [props.caseData, goalInput]);
+		var selected = null;
+		tickets.forEach(function (t) { if (t.id === selectedId) selected = t; });
+		if (!selected && tickets.length > 0) selected = tickets[0];
+		React.useEffect(function () {
+			if (!selectedId && tickets.length > 0) setSelectedId(tickets[0].id);
+		}, [tickets.length, selectedId]);
+
+		function callJson(path, body) {
+			return fetch(path, {
+				method: "POST",
+				headers: { "content-type": "application/json" },
+				body: JSON.stringify(body),
+			}).then(function (r) { return r.json(); }).then(function (res) {
+				if (!res || !res.ok) throw new Error((res && res.error) || "请求失败");
+				return res.data;
+			});
+		}
+		function done(label) {
+			setBusy("");
+			setNotice(label || "");
+			if (props.onRefresh) props.onRefresh();
+		}
+		function createTicket() {
+			var goal = String(goalInput || "").trim();
+			if (goal === "") { setNotice("先填写分析目标（goal）。"); return; }
+			var cd = props.caseData;
+			setBusy("create");
+			callJson("/api/helmd/team", {
+				action: "create",
+				goal: goal,
+				caseDir: cd && cd.active && cd.dir ? cd.dir : undefined,
+				roles: newRoles && newRoles.length > 0 ? newRoles : undefined,
+			})
+				.then(function (t) { setSelectedId(t.id); setGoalInput(""); done("已创建 " + t.id); })
+				.catch(function (e) { setBusy(""); setNotice(String(e.message || e)); });
+		}
+		function startRole(role) {
+			if (!selected) return;
+			if (!props.sessionId) {
+				setNotice("当前面板没有会话 id；先从 helmd 会话打开工作台。");
+				return;
+			}
+			setBusy(role);
+			callJson("/api/helmd/team", {
+				action: "start",
+				ticketId: selected.id,
+				role: role,
+				task: selected.goal,
+				parentSessionId: props.sessionId,
+			}).then(function (res) { done("已启动 " + res.role + " · " + res.sessionId); })
+				.catch(function (e) { setBusy(""); setNotice(String(e.message || e)); });
+		}
+		function steerRole(role) {
+			if (!selected || !props.sessionId) { setNotice("当前面板没有会话 id。"); return; }
+			var message = String(steerTexts[role] || "").trim();
+			if (message === "") { setNotice("先填写纠偏指令。"); return; }
+			setBusy("steer:" + role);
+			callJson("/api/helmd/team", {
+				action: "steer", ticketId: selected.id, role: role,
+				message: message, parentSessionId: props.sessionId,
+			}).then(function (res) {
+				setSteerTexts(function (prev) { var next = Object.assign({}, prev); delete next[role]; return next; });
+				done("已纠偏 " + role + " · " + (res.id || ""));
+			}).catch(function (e) { setBusy(""); setNotice(String(e.message || e)); });
+		}
+		function closeTicket() {
+			if (!selected) return;
+			setBusy("close");
+			callJson("/api/helmd/team", { action: "close", ticketId: selected.id, outcome: "done" })
+				.then(function () { done("ticket 已关闭"); })
+				.catch(function (e) { setBusy(""); setNotice(String(e.message || e)); });
+		}
+		function versionAction(action, revision) {
+			setBusy(action + ":" + revision.kind + ":" + revision.id);
+			callJson("/api/helmd/team/versions", {
+				action: action,
+				kind: revision.kind,
+				id: revision.id,
+				revision: revision.revision,
+			}).then(function () { done(action === "activate" ? "已激活新 revision" : "已回滚"); })
+				.catch(function (e) { setBusy(""); setNotice(String(e.message || e)); });
+		}
+
+		function stateColor(state) {
+			if (state === "done" || state === "ready") return TONE.success;
+			if (state === "blocked" || state === "failed") return TONE.error;
+			if (state === "working" || state === "running" || state === "progress") return TONE.info;
+			return TONE.muted;
+		}
+
+		var ticketRows = tickets.map(function (t) {
+			var isCurrent = selected && t.id === selected.id;
+			return h("button", {
+				key: t.id, type: "button", className: "hm-row",
+				onClick: function () { setSelectedId(t.id); },
+				style: {
+					display: "flex", alignItems: "center", gap: 8, width: "100%",
+					padding: "6px 7px", borderRadius: "var(--dsw-radius-xs)",
+					border: "0.5px solid " + (isCurrent ? "var(--dsw-alias-border-l3)" : "transparent"),
+					background: isCurrent ? "var(--dsw-alias-bg-layer-1)" : "transparent",
+					color: "var(--dsw-alias-label-secondary)", textAlign: "left", cursor: "pointer",
+				},
+			},
+				h("span", { style: { fontFamily: CODE, fontSize: 10.5, color: TONE.muted, flex: "none" } }, t.id),
+				h("span", {
+					style: {
+						flex: 1, minWidth: 0, fontSize: 12, overflow: "hidden",
+						textOverflow: "ellipsis", whiteSpace: "nowrap",
+					},
+				}, t.goal),
+				h("span", { style: S.pill(stateColor(t.state)) }, t.state),
+				t.findingsBySeverity ? h("span", { style: { fontSize: 10.5, color: TONE.warn, flex: "none" } }, "C" + t.findingsBySeverity.critical + " H" + t.findingsBySeverity.high) : null,
+				h("span", { style: { fontSize: 10.5, color: TONE.muted, flex: "none" } }, (t.reports || []).length + "R")
+			);
+		});
+
+		var roleRows = selected ? selected.roles.map(function (role) {
+			var deps = (selected.roleDeps && selected.roleDeps[role.role]) || [];
+			var unmet = deps.filter(function (dep) {
+				var depRole = selected.roles.find(function (r) { return r.role === dep; });
+				return depRole && depRole.state !== "done";
+			});
+			return h("div", {
+				key: role.role,
+				style: {
+					display: "flex", alignItems: "center", gap: 8, padding: "7px 6px",
+					borderRadius: "var(--dsw-radius-xs)",
+				},
+			},
+				h("span", { style: { width: 6, height: 6, borderRadius: 999, background: stateColor(role.state), flex: "none" } }),
+				h("span", { style: { fontSize: 12, minWidth: 74, color: "var(--dsw-alias-label-primary)" } }, role.role),
+				h("span", { style: Object.assign({}, S.caption, { flex: 1, minWidth: 0, fontFamily: CODE }) },
+					role.sessionId ? role.sessionId.slice(0, 12) : (unmet.length ? "waits: " + unmet.join(",") : "not started")),
+				h("span", { style: S.pill(stateColor(role.state), true) }, role.state),
+				role.state === "running" ? h("input", {
+					type: "text", value: steerTexts[role.role] || "", placeholder: "steer…",
+					onChange: function (e) {
+						var value = e.target.value;
+						setSteerTexts(function (prev) { return Object.assign({}, prev, { [role.role]: value }); });
+					},
+					style: {
+						width: 110, height: 22, padding: "0 6px", borderRadius: 4,
+						border: "0.5px solid var(--dsw-alias-border-l3)", background: "var(--dsw-alias-bg-layer-1)",
+						color: "var(--dsw-alias-label-primary)", fontSize: 10.5, outline: "none",
+					},
+				}) : null,
+				role.state === "running" ? h("button", {
+					type: "button", className: "hm-btn", disabled: busy === "steer:" + role.role,
+					onClick: function () { steerRole(role.role); },
+					style: {
+						height: 22, padding: "0 7px", borderRadius: 4,
+						border: "0.5px solid var(--dsw-alias-border-l3)", background: "transparent",
+						color: "var(--dsw-alias-label-secondary)", fontSize: 11, cursor: "pointer",
+					},
+				}, busy === "steer:" + role.role ? "发送中" : "纠偏") : null,
+				h("button", {
+					type: "button", className: "hm-btn", disabled: role.state === "running" || busy === role.role,
+					onClick: function () { startRole(role.role); },
+					style: {
+						height: 22, padding: "0 7px", borderRadius: 4,
+						border: "0.5px solid var(--dsw-alias-border-l3)", background: "transparent",
+						color: role.state === "running" ? TONE.muted : "var(--dsw-alias-label-secondary)",
+						fontSize: 11, cursor: role.state === "running" ? "default" : "pointer",
+					},
+				}, busy === role.role ? "启动中" : "启动")
+			);
+		}) : [];
+
+		var reportRows = selected ? selected.reports.slice().reverse().slice(0, 10).map(function (r) {
+			return h("div", {
+				key: r.id,
+				style: {
+					padding: "7px 9px", borderRadius: 4,
+					background: "var(--dsw-alias-bg-layer-1)",
+					border: "0.5px solid var(--dsw-alias-border-l1)",
+				},
+			},
+				h("div", { style: { display: "flex", alignItems: "center", gap: 6 } },
+					h("span", { style: { fontFamily: CODE, fontSize: 10.5, color: TONE.muted } }, r.id + " · " + r.role),
+					h("span", { style: S.pill(stateColor(r.state)) }, r.state),
+					r.stopReason ? h("span", { style: Object.assign({}, S.caption, { marginLeft: "auto" }) }, r.stopReason) : null
+				),
+				h("div", { style: { marginTop: 3, fontSize: 11.5, lineHeight: "17px", color: "var(--dsw-alias-label-secondary)", whiteSpace: "pre-wrap" } }, r.summary),
+				r.evidenceIds && r.evidenceIds.length ? h("div", { style: { marginTop: 3, fontFamily: CODE, fontSize: 10.5, color: TONE.info } }, r.evidenceIds.join(" ")) : null,
+				r.repro ? h("div", { style: { marginTop: 2, fontFamily: CODE, fontSize: 10.5, color: TONE.muted } }, "repro: " + r.repro) : null,
+				r.wallTimeMs ? h("div", { style: Object.assign({}, S.caption, { marginTop: 2 }) }, (r.wallTimeMs / 1000).toFixed(1) + "s" + (r.source ? " · " + r.source : "")) : null
+			);
+		}) : [];
+
+		var revisionRows = revisions.slice().reverse().slice(0, 14).map(function (rev) {
+			var key = rev.kind + ":" + rev.id;
+			var isActive = activeMap[key] === rev.revision;
+			var passed = rev.eval && rev.eval.pass;
+			return h("div", {
+				key: key + "@" + rev.revision,
+				style: {
+					display: "flex", alignItems: "center", gap: 6, padding: "5px 6px",
+					borderRadius: "var(--dsw-radius-xs)", background: isActive ? "var(--dsw-alias-bg-layer-1)" : "transparent",
+				},
+			},
+				h("span", { style: { fontFamily: CODE, fontSize: 10.5, color: TONE.muted, flex: "none" } }, key + "@" + rev.revision),
+				h("span", { style: S.caption }, rev.source || "local"),
+				h("span", {
+					style: S.pill(passed ? TONE.success : (rev.eval ? TONE.error : TONE.muted), !rev.eval),
+				}, rev.eval ? (passed ? "eval pass" : "eval fail") : "no eval"),
+				isActive ? h("span", { style: S.pill(TONE.info) }, "active") : null,
+				h("span", { style: { flex: 1 } }),
+				!isActive && passed ? h("button", {
+					type: "button", className: "hm-btn", onClick: function () { versionAction("activate", rev); },
+					style: { height: 21, padding: "0 6px", borderRadius: 4, border: "0.5px solid var(--dsw-alias-border-l3)", background: "transparent", color: "var(--dsw-alias-label-secondary)", fontSize: 10.5, cursor: "pointer" },
+				}, "activate") : null,
+				isActive && rev.parent > 0 ? h("button", {
+					type: "button", className: "hm-btn", onClick: function () { versionAction("rollback", rev); },
+					style: { height: 21, padding: "0 6px", borderRadius: 4, border: "0.5px solid var(--dsw-alias-border-l3)", background: "transparent", color: "var(--dsw-alias-label-secondary)", fontSize: 10.5, cursor: "pointer" },
+				}, "rollback") : null
+			);
+		});
+
+		return h("div", { style: { display: "flex", flexDirection: "column", gap: 10 } },
+			notice ? h("div", {
+				style: {
+					padding: "7px 9px", borderRadius: 4, fontSize: 11.5, lineHeight: "17px",
+					color: TONE.warn, background: "var(--dsw-alias-bg-layer-1)",
+				},
+			}, notice) : null,
+			h("div", { style: S.card },
+				h("div", { style: { display: "flex", alignItems: "center", gap: 8 } },
+					h("span", { style: S.title }, "Tickets"),
+					h("span", { style: S.caption }, String(tickets.length))
+				),
+				h("div", { style: { marginTop: 6 } },
+					h("input", {
+						type: "text", value: goalInput,
+						placeholder: "分析目标（goal），例如：分析 samples/app.apk 的加固方式",
+						onChange: function (e) { setGoalInput(e.target.value); },
+						onKeyDown: function (e) { if (e.key === "Enter" && !(e.nativeEvent && e.nativeEvent.isComposing)) createTicket(); },
+						style: {
+							width: "100%", height: 28, padding: "0 8px", borderRadius: "var(--dsw-radius-sm)",
+							border: "0.5px solid var(--dsw-alias-border-l3)", background: "var(--dsw-alias-bg-layer-1)",
+							color: "var(--dsw-alias-label-primary)", fontSize: 12.5, outline: "none", boxSizing: "border-box",
+						},
+					}),
+					h("div", { style: { display: "flex", flexWrap: "wrap", gap: 5, marginTop: 6 } },
+						TEAM_ROLE_LIST.map(function (role) {
+							var on = (newRoles || []).indexOf(role) >= 0;
+							return h("button", {
+								key: "new-" + role, type: "button",
+								onClick: function () {
+									setNewRoles(function (prev) {
+										var list = prev || [];
+										return list.indexOf(role) >= 0 ? list.filter(function (r) { return r !== role; }) : list.concat([role]);
+									});
+								},
+								style: {
+									padding: "2px 7px", borderRadius: 4, fontSize: 10.5, cursor: "pointer",
+									border: "0.5px solid " + (on ? TONE.info : "var(--dsw-alias-border-l3)"),
+									background: on ? "color-mix(in srgb, " + TONE.info + " 12%, transparent)" : "transparent",
+									color: on ? TONE.info : "var(--dsw-alias-label-secondary)",
+								},
+							}, role);
+						}),
+						h("button", {
+							type: "button", className: "hm-btn", onClick: createTicket, disabled: busy === "create",
+							style: { marginLeft: "auto", height: 24, padding: "0 10px", borderRadius: 4, border: "0.5px solid var(--dsw-alias-border-l3)", background: "transparent", color: "var(--dsw-alias-label-secondary)", fontSize: 11, cursor: "pointer" },
+						}, busy === "create" ? "创建中…" : "新建 ticket")
+					),
+					h("div", { style: Object.assign({}, S.caption, { marginTop: 4 }) },
+						"绑定 case 时用 case 目录作 workspace；未绑定时用 helmd 存储下的 standalone 目录。")
+				),
+				ticketRows.length ? h("div", { style: { display: "flex", flexDirection: "column", gap: 1, marginTop: 8 } }, ticketRows) : h(EmptyState, {
+					title: "还没有 ticket",
+					hint: "填 goal 新建，或在对话里让模型 team_create。",
+				})
+			),
+			selected ? h("div", { style: S.card },
+				h("div", { style: { display: "flex", alignItems: "center", gap: 8 } },
+					h("span", { style: S.title }, selected.id),
+					h("span", { style: S.pill(stateColor(selected.state)) }, selected.state),
+					h("button", {
+						type: "button", className: "hm-btn", onClick: closeTicket, disabled: busy === "close",
+						style: { marginLeft: "auto", height: 24, padding: "0 8px", borderRadius: 4, border: "0.5px solid var(--dsw-alias-border-l3)", background: "transparent", color: "var(--dsw-alias-label-secondary)", fontSize: 11, cursor: "pointer" },
+					}, busy === "close" ? "关闭中" : "完成")
+				),
+				h("div", { style: Object.assign({}, S.body, { marginTop: 5 }) }, selected.goal),
+				h("div", { style: Object.assign({}, S.caption, { marginTop: 3, fontFamily: CODE }) }, selected.caseDir),
+				h("div", { style: { display: "flex", flexDirection: "column", gap: 1, marginTop: 8 } }, roleRows)
+			) : null,
+			selected ? h("div", { style: S.card },
+				h("div", { style: { display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: reportRows.length ? 6 : 0 } },
+					h("span", { style: S.title }, "Reports"),
+					h("span", { style: S.caption }, String(selected.reports.length))
+				),
+				reportRows.length ? h("div", { style: { display: "flex", flexDirection: "column", gap: 6 } }, reportRows) : h(EmptyState, {
+					title: "还没有 report",
+					hint: "启动一个 role worker，结果会自动回写；worker 失败也会留下 failed 记录。",
+				})
+			) : null,
+			h("div", { style: S.card },
+				h("div", { style: { display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: revisionRows.length ? 6 : 0 } },
+					h("span", { style: S.title }, "Evolution"),
+					h("span", { style: S.caption }, "revision + A/B gate")
+				),
+				revisionRows.length ? h("div", { style: { display: "flex", flexDirection: "column", gap: 3 } }, revisionRows) : h(EmptyState, {
+					title: "还没有 revision",
+					hint: "用 /api/helmd/team/versions 或 scripts/team-eval.mjs 提案、评估；只有 pass 的 revision 能激活。",
+				})
+			)
+		);
+	}
+
+	// ── Tab 3: 破甲档位（热切换） ────────────────────────────────
 	function ProfileTab(props) {
 		var p = props.profileData;
 		if (!p || !Array.isArray(p.profiles) || p.profiles.length === 0) {
@@ -775,7 +1521,7 @@ exports.apply = function apply(ctx) {
 				style: {
 					padding: "8px 10px", borderRadius: "var(--dsw-radius-sm)", fontSize: 12, lineHeight: "18px",
 					color: TONE.error,
-					background: "var(--dsw-alias-state-error-tertiary)",
+					background: "var(--dsw-alias-state-error-secondary)",
 					border: "0.5px solid color-mix(in srgb, " + TONE.error + " 35%, transparent)",
 				},
 			}, props.error) : null
@@ -864,6 +1610,8 @@ exports.apply = function apply(ctx) {
 
 		var version = String((result && result.currentVersion) || props.version || "unknown").replace(/^v/i, "");
 		var latest = result && result.latestVersion ? String(result.latestVersion).replace(/^v/i, "") : "";
+		var installTag = version && version !== "unknown" ? version : "X.Y.Z";
+		var installUrl = "https://github.com/ADWMC/helm-d/releases/download/v" + installTag + "/helm-d.tgz";
 		var linkStyle = { color: "var(--dsw-alias-state-business-primary)", textDecoration: "none" };
 		var codeStyle = {
 			margin: "8px 0 0", padding: "10px 12px",
@@ -874,11 +1622,10 @@ exports.apply = function apply(ctx) {
 			color: "var(--dsw-alias-label-secondary)", overflowX: "auto",
 		};
 		var fallbackChanges = [
-			"移植上游 0.5.2：Case 会话隔离 + 每轮 [helm-d case] 提示注入",
-			"假设账本（record_hypothesis / update_hypothesis）与 repro_cmd 结论门禁",
-			"L3 自主状态包 + L4-lite 调度建议；破甲档位热切换（core / stealth / redteam-max）",
-			"工作台改为破甲 / Case / 拦截 / 关于；工具数 33；移除 find_tool 与模型评测",
-			"（fork）无星标弹窗；会话标签栏工作台保留；胶囊改用独立槽位 id",
+			"破甲档位热切换：ds4.1f / stealth / redteam-max / gpt-6x，下一次模型调用生效",
+			"工作台改为破甲 / Case / 拦截 / 关于，对齐 DSH 原生样式",
+			"工具数 33；移除 find_tool 与静态工具目录",
+			"星标浮层迁入 shell.overlay，不再写 document.body",
 		];
 		var changes = result && Array.isArray(result.releaseNotes) && result.releaseNotes.length > 0
 			? result.releaseNotes
@@ -919,26 +1666,23 @@ exports.apply = function apply(ctx) {
 				) : null,
 				result && latest && result.updateAvailable
 					? h("div", { style: { marginTop: 4, fontSize: 12 } },
-						h("a", { href: result.releaseUrl || "https://github.com/Fleey/helm-deepseek-harnessn/releases/latest", target: "_blank", rel: "noopener noreferrer", style: linkStyle }, "打开 Releases")
+						h("a", { href: result.releaseUrl || "https://github.com/ADWMC/helm-d/releases/latest", target: "_blank", rel: "noopener noreferrer", style: linkStyle }, "打开 Releases")
 					)
 					: null,
 				h("div", { style: { marginTop: 6, fontSize: 12, color: "var(--dsw-alias-label-secondary)" } },
-					"上游作者 ",
+					"作者 ",
 					h("a", { href: "https://github.com/ADWMC", target: "_blank", rel: "noopener noreferrer", style: linkStyle }, "ADWMC"),
 					" · ",
-					h("a", { href: "https://github.com/ADWMC/helm-d", target: "_blank", rel: "noopener noreferrer", style: linkStyle }, "ADWMC/helm-d"),
-					"（本仓库为其桌面版适配 fork：",
-					h("a", { href: "https://github.com/Fleey/helm-deepseek-harnessn", target: "_blank", rel: "noopener noreferrer", style: linkStyle }, "Fleey/helm-deepseek-harnessn"),
-					"）"
+					h("a", { href: "https://github.com/ADWMC/helm-d", target: "_blank", rel: "noopener noreferrer", style: linkStyle }, "ADWMC/helm-d")
 				)
 			),
 			h("div", { style: S.card },
 				h("div", { style: S.title }, "更新地址"),
 				h("div", { style: Object.assign({}, S.body, { marginTop: 4 }) },
-					h("a", { href: "https://github.com/Fleey/helm-deepseek-harnessn/releases", target: "_blank", rel: "noopener noreferrer", style: linkStyle }, "github.com/Fleey/helm-deepseek-harnessn/releases")
+					h("a", { href: "https://github.com/ADWMC/helm-d/releases", target: "_blank", rel: "noopener noreferrer", style: linkStyle }, "github.com/ADWMC/helm-d/releases")
 				),
-				h("pre", { style: codeStyle }, "dsh plugin --profile web add https://github.com/Fleey/helm-deepseek-harnessn/releases/download/vX.Y.Z/helmd.tgz"),
-				h("div", { style: Object.assign({}, S.caption, { marginTop: 6 }) }, "版本化 URL（带 vX.Y.Z）——latest/download 滚动地址写进 profile 依赖后，下次发版会让 pnpm lockfile 的 sha512 失配")
+				h("pre", { style: codeStyle }, "dsh plugin --profile web add " + installUrl),
+				h("div", { style: Object.assign({}, S.caption, { marginTop: 6 }) }, "版本化 URL；不要用 latest/download 写进 profile 依赖（会导致 pnpm lockfile sha512 失配）。")
 			),
 				h("div", { style: S.card },
 					h("div", { style: { display: "flex", alignItems: "center", justifyContent: "space-between" } },
@@ -946,7 +1690,7 @@ exports.apply = function apply(ctx) {
 							h("span", { style: S.title }, "更新日志"),
 							h("span", { style: S.caption }, result && latest ? "Releases v" + latest : "内置摘要")
 						),
-						h("a", { href: "https://github.com/Fleey/helm-deepseek-harnessn/blob/main/CHANGELOG.md", target: "_blank", rel: "noopener noreferrer", style: Object.assign({}, S.caption, linkStyle) }, "完整日志")
+						h("a", { href: "https://github.com/ADWMC/helm-d/blob/main/CHANGELOG.md", target: "_blank", rel: "noopener noreferrer", style: Object.assign({}, S.caption, linkStyle) }, "完整日志")
 					),
 				h("div", { style: { display: "flex", flexDirection: "column", gap: 4, marginTop: 8 } },
 					changes.map(function (line) {
@@ -987,6 +1731,11 @@ exports.apply = function apply(ctx) {
 					fetch('/api/helmd/profile').then(function(r){return r.json()}).catch(function(){return null}),
 					fetch('/api/helmd/case/findings' + caseQuery).then(function(r){return r.json()}).catch(function(){return null}),
 					fetch('/api/helmd/case/evidence' + caseQuery).then(function(r){return r.json()}).catch(function(){return null}),
+					fetch('/api/helmd/team').then(function(r){return r.json()}).catch(function(){return null}),
+					fetch('/api/helmd/team/versions').then(function(r){return r.json()}).catch(function(){return null}),
+					fetch('/api/helmd/settings').then(function(r){return r.json()}).catch(function(){return null}),
+					fetch('/api/helmd/tools/catalog').then(function(r){return r.json()}).catch(function(){return null}),
+					fetch('/api/helmd/approvals').then(function(r){return r.json()}).catch(function(){return null}),
 				]).then(function(results) {
 					if (!alive) return;
 					setData({
@@ -997,6 +1746,12 @@ exports.apply = function apply(ctx) {
 						profile: (results[4] && results[4].data) || null,
 						findings: (results[5] && results[5].data) || [],
 						evidence: (results[6] && results[6].data) || [],
+						teamData: (results[7] && results[7].data) || null,
+						versions: (results[8] && results[8].data) || null,
+						settings: (results[9] && results[9].data) || null,
+						catalog: (results[10] && results[10].data) || null,
+						approvals: (results[11] && results[11].data) || [],
+						sessionId: sid || null,
 					});
 				});
 			}
@@ -1007,7 +1762,13 @@ exports.apply = function apply(ctx) {
 		function refresh() { setReloadTick(function (n) { return n + 1; }); }
 		var active = React.useState("profile");
 		var tab = active[0]; var setTab = active[1];
-		React.useEffect(function () { if (tab === "case") refresh(); }, [tab]);
+		var scrollRef = React.useRef(null);
+		var stickBottom = React.useRef(true);
+		React.useEffect(function () {
+			var el = scrollRef.current;
+			if (el && stickBottom.current) el.scrollTop = el.scrollHeight;
+		}, [data, tab]);
+		React.useEffect(function () { if (tab === "case" || tab === "team") refresh(); }, [tab]);
 		var switching = React.useState(false);
 		var isSwitching = switching[0]; var setSwitching = switching[1];
 		var profileError = React.useState("");
@@ -1033,10 +1794,15 @@ exports.apply = function apply(ctx) {
 				.then(function () { setSwitching(false); });
 		}
 
+		var teamTickets = (data.teamData && Array.isArray(data.teamData.tickets)) ? data.teamData.tickets : [];
+		var openTickets = teamTickets.filter(function (t) { return t.state !== "done" && t.state !== "dropped"; }).length;
 		var tabs = [
 			{ key: "profile", label: "破甲", badge: 0 },
 			{ key: "case", label: "Case", badge: (data.caseData && data.caseData.active && data.caseData.openHypotheses) || 0 },
+			{ key: "team", label: "Team", badge: openTickets },
+			{ key: "tools", label: "工具", badge: ((data.catalog || []).filter(function (e) { return e.health && e.health.installed; }).length) },
 			{ key: "intercept", label: "拦截", badge: (data.intercept && data.intercept.count) || 0 },
+			{ key: "settings", label: "设置", badge: 0 },
 			{ key: "about", label: "关于", badge: 0 },
 		];
 
@@ -1117,18 +1883,32 @@ exports.apply = function apply(ctx) {
 			h("div", {
 				className: "hm-scroll",
 				style: { flex: 1, overflowY: "auto", padding: 12 },
+				ref: scrollRef,
+				onScroll: function (e) {
+					var el = e.currentTarget;
+					stickBottom.current = el.scrollHeight - el.scrollTop - el.clientHeight < 40;
+				},
 			},
 				h("div", {
 					key: tab, className: "hm-fade",
 					style: { display: "flex", flexDirection: "column", gap: 10 },
 				},
 					// (fork) per-tab error boundary: one tab's render error must
-					// not blank out the whole panel.
+					// not blank out the whole panel (Intercept Log whiteout).
 					h(TabErrorBoundary, null,
-						tab === "profile" ? h(ProfileTab, { profileData: data.profile, onSwitch: switchTo, switching: isSwitching, error: profileErr }) : null,
-						tab === "case" ? h(CaseTab, { caseData: data.caseData, findings: data.findings, evidence: data.evidence, onRefresh: refresh }) : null,
-						tab === "intercept" ? h(InterceptTab, { interceptData: data.intercept }) : null,
-						tab === "about" ? h(AboutTab, { version: (data.health && data.health.version) || "unknown" }) : null
+					tab === "profile" ? h(ProfileTab, { profileData: data.profile, onSwitch: switchTo, switching: isSwitching, error: profileErr }) : null,
+					tab === "case" ? h(CaseTab, { caseData: data.caseData, findings: data.findings, evidence: data.evidence, sessionId: data.sessionId, onRefresh: refresh }) : null,
+					tab === "team" ? h(TeamTab, {
+						teamData: data.teamData,
+						versions: data.versions,
+						caseData: data.caseData,
+						sessionId: data.sessionId || props.sessionId || null,
+						onRefresh: refresh,
+					}) : null,
+					tab === "tools" ? h(ToolsTab, { catalog: data.catalog, onRefresh: refresh }) : null,
+					tab === "intercept" ? h(InterceptTab, { interceptData: data.intercept }) : null,
+					tab === "settings" ? h(SettingsTab, { settings: data.settings, approvals: data.approvals, onRefresh: refresh }) : null,
+					tab === "about" ? h(AboutTab, { version: (data.health && data.health.version) || "unknown" }) : null
 					)
 				)
 			)
@@ -1148,7 +1928,6 @@ exports.apply = function apply(ctx) {
 				id: "helm-d:eval",
 				kind: "eval",
 				title: () => "helmd 工作台",
-				guide: [{ id: "helmd", order: 20, title: () => "helmd 工作台", description: () => "破甲档位 / Case / 拦截日志 / 关于" }],
 			});
 		}, "helmd: sidebar tab definition");
 	}
@@ -1157,7 +1936,6 @@ exports.apply = function apply(ctx) {
 		yield ctx.slots.register({ name: "sidebar.right.pane.tab", key: "helm-d:eval" }, HelmdWorkbenchPanel);
 		yield ctx.slots.register({ name: "sidebar.right.pane.tab", key: "eval" }, HelmdWorkbenchPanel);
 	});
-
 	ctx.slots.inject("sidebar.right.pane.tab.title", function* () {
 		yield ctx.slots.register({ name: "sidebar.right.pane.tab.title", key: "helm-d:eval" }, HelmdTabTitle);
 		yield ctx.slots.register({ name: "sidebar.right.pane.tab.title", key: "eval" }, HelmdTabTitle);

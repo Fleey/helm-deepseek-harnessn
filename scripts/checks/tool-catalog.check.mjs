@@ -52,7 +52,13 @@ await report.check('no tool is registered twice', () => {
 })
 
 await report.check('the load-bearing tool names are all present', () => {
-  for (const name of ['begin_case', 'case_status', 'record_finding', 'record_hypothesis', 'update_hypothesis', 'save_evidence', 'end_case', 'tool_memory', 'route_task']) {
+  for (const name of [
+    // fork v0.5.2 line: hypothesis ledger + case lifecycle
+    'begin_case', 'case_status', 'record_finding', 'record_hypothesis', 'update_hypothesis', 'save_evidence', 'end_case', 'route_task',
+    // upstream v0.5.3 line: team protocol, finding registry, toolbox, recon / PoC / mining
+    'team_dispatch', 'team_create', 'team_status', 'team_report', 'team_steer', 'update_finding', 'toolbox',
+    'recon_passive', 'recon_ports', 'recon_http', 'recon_crawl', 'recon_import', 'run_poc', 'mine_candidates',
+  ]) {
     assert.ok(names.includes(name), `missing tool: ${name}`)
   }
 })

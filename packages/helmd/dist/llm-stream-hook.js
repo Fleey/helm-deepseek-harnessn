@@ -2,6 +2,7 @@ import { appendFileSync, existsSync, mkdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { homedir } from 'node:os';
 import { safeService } from './seam.js';
+import { loadSettings } from './settings.js';
 import { buildRoutedMessages, classifyRefusal, routeRefusal, } from './jailbreak-prompt-router.js';
 const REFUSAL_PREFIX_RE = new RegExp([
     '抱歉[，,]?\\s*我(?:无法|不能)',
@@ -450,7 +451,10 @@ export function registerLlmStreamHook(ctx) {
     if (typeof host?.on !== 'function')
         return;
     host.on('llm/stream', async function* (options, next) {
-        if (MODE === 'off') {
+        // Operator settings win over the env default: the 设置 tab / DSH settings
+        // page can turn interception off for the running host.
+        const mode = loadSettings().intercept.enabled ? MODE : 'off';
+        if (mode === 'off') {
             yield* next();
             return;
         }
@@ -472,7 +476,7 @@ export function registerLlmStreamHook(ctx) {
             // 无 llm 服务（宿主形态异常）：无法重入，只能如实结束本轮
         };
         // always 模式：attempt 0 不透传宿主原请求，直接以 prefill 形态重入（破坏 tool-call 轮，需自担）
-        if (attempt === 0 && MODE === 'always') {
+        if (attempt === 0 && mode === 'always') {
             yield* streamNested(1, 'scope_refusal');
             return;
         }

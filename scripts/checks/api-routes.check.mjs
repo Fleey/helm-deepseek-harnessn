@@ -23,8 +23,14 @@ const report = createReporter('api-routes')
 
 const ROUTE_BASE = '/api/helmd'
 // fork: no gate family — the star gate is gone; /update hits the network so it is
-// asserted registered but not called.
-const ROUTES = ['tools', 'intercept', 'profile', 'update']
+// asserted registered but not called. v0.5.3 adds the team / settings / toolbox /
+// recon-side routes (approvals, case/sarif, case/report, tools/catalog, …).
+const ROUTES = [
+  'tools', 'intercept', 'profile', 'update',
+  'settings', 'approvals', 'team', 'team/versions',
+  'tools/catalog', 'tools/update', 'tools/mirror', 'tools/install', 'tools/uninstall', 'tools/releases',
+  'case/sarif', 'case/report',
+]
 
 /** Registry contents, reachable only through register/schemas — no layer internals. */
 const registered = []
@@ -38,6 +44,20 @@ const services = {
   },
   settings: { register: () => {} },
   webServer: { register: () => {} },
+  // Host seams the v0.5.3 team routes need: session registry + in-process
+  // subagent spawn provider (the worker adapter starts a child Agent here).
+  agents: { get: (id) => ({ id }) },
+  subagents: {
+    getProvider: (name) => ({ name }),
+    startActivation: async () => ({
+      childId: 'sess-api-worker',
+      result: Promise.resolve({
+        stopReason: 'completed',
+        output: [{ type: 'text', text: '{"state":"ready","summary":"api worker","evidenceIds":["E-001"],"repro":"file sample"}' }],
+      }),
+      dispose: async () => {},
+    }),
+  },
 }
 
 const routes = new Map()
@@ -53,7 +73,10 @@ function makeContext(grants) {
   return new Proxy({}, {
     get(_target, prop) {
       if (prop === 'inject') return (deps, cb) => cb(makeContext([...grants, ...deps]))
-      if (prop === 'on' || prop === 'emit' || prop === 'get') return () => {}
+      if (prop === 'on' || prop === 'emit') return () => {}
+      // Service reads go through ctx.get(name) (dsh service registry), not
+      // property access — service() in team-worker.ts uses this path.
+      if (prop === 'get') return (name) => services[name]
       if (typeof prop === 'string' && Object.hasOwn(services, prop)) {
         if (!grants.includes(prop)) throw new Error(`cannot get property "${prop}" without inject`)
         return services[prop]
@@ -209,6 +232,93 @@ await report.check('GET /case/findings follows the same session binding', async 
   assert.ok(Array.isArray(bound.payload.data))
   const other = await call(`${ROUTE_BASE}/case/findings`, { url: `${ROUTE_BASE}/case/findings?sessionId=sess-other` })
   assert.deepEqual(other.payload.data, [])
+})
+
+await report.check('POST /team creates a local analysis ticket', async () => {
+  const created = await post(`${ROUTE_BASE}/team`, {
+    action: 'create',
+    goal: 'api team ticket',
+    caseDir: join(process.env.HELMD_CASES_DIR, 'team-case'),
+    roles: ['triage', 'static', 'critic', 'reporter'],
+  })
+  assert.equal(created.status, 200, `got ${created.status}: ${created.payload?.error ?? ''}`)
+  assert.equal(created.payload.data.state, 'open')
+  const listed = await call(`${ROUTE_BASE}/team`)
+  assert.ok(listed.payload.data.tickets.some((ticket) => ticket.goal === 'api team ticket'))
+})
+
+await report.check('POST /team starts a local worker and records its report', async () => {
+  const created = await post(`${ROUTE_BASE}/team`, {
+    action: 'create',
+    goal: 'api worker ticket',
+    caseDir: join(process.env.HELMD_CASES_DIR, 'api-worker-case'),
+    roles: ['triage'],
+  })
+  assert.equal(created.status, 200, created.payload?.error ?? '')
+  const started = await post(`${ROUTE_BASE}/team`, {
+    action: 'start',
+    ticketId: created.payload.data.id,
+    role: 'triage',
+    parentSessionId: 'sess-api',
+  })
+  assert.equal(started.status, 200, started.payload?.error ?? '')
+  assert.equal(started.payload.data.sessionId, 'sess-api-worker')
+  await new Promise((resolve) => setTimeout(resolve, 20))
+  const listed = await call(`${ROUTE_BASE}/team`)
+  const ticket = listed.payload.data.tickets.find((item) => item.id === created.payload.data.id)
+  assert.equal(ticket.roles[0].sessionId, 'sess-api-worker')
+  assert.equal(ticket.reports.at(-1).summary, 'api worker')
+  assert.equal(ticket.reports.at(-1).source, 'worker')
+})
+
+await report.check('GET/POST /settings round-trips and clamps through the store', async () => {
+  const initial = await call(`${ROUTE_BASE}/settings`)
+  assert.equal(initial.status, 200)
+  assert.equal(initial.payload.data.intercept.enabled, true)
+  const saved = await post(`${ROUTE_BASE}/settings`, { star: { popupDelaySec: 9 }, team: { maxParallelWorkers: 2 } })
+  assert.equal(saved.status, 200)
+  assert.equal(saved.payload.data.star.popupDelaySec, 9)
+  assert.equal(saved.payload.data.team.maxParallelWorkers, 2)
+  assert.equal(saved.payload.data.intercept.enabled, true, 'untouched group survives the patch')
+  const onDisk = JSON.parse(readFileSync(join(process.env.DSH_HOME, 'storages', 'helmd', 'settings.json'), 'utf8'))
+  assert.equal(onDisk.star.popupDelaySec, 9)
+})
+
+await report.check('POST /case/findings updates triage and rejects invalid status', async () => {
+  writeFileSync(join(caseDir, 'findings.json'), JSON.stringify([{
+    id: 'F-001', title: 'api finding', detail: 'd', severity: 'medium', status: 'candidate',
+    confidence: 'probable', vulnClass: 'api', evidence: 'E-001', evidenceIds: ['E-001'],
+    repro: 'cmd', seenCount: 1, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(),
+  }], null, 2))
+  const accepted = await post(`${ROUTE_BASE}/case/findings`, { sessionId: 'sess-api', id: 'F-001', status: 'rejected', note: 'api triage' })
+  assert.equal(accepted.status, 200, accepted.payload?.error ?? '')
+  assert.equal(accepted.payload.data.status, 'rejected')
+  const rejected = await post(`${ROUTE_BASE}/case/findings`, { sessionId: 'sess-api', id: 'F-001', status: 'ghost' })
+  assert.equal(rejected.status, 400)
+  assert.match(rejected.payload.error, /unknown finding status/)
+  const missing = await post(`${ROUTE_BASE}/case/findings`, { sessionId: 'sess-api', id: 'F-999', status: 'verified' })
+  assert.equal(missing.status, 404)
+})
+
+await report.check('GET /case/sarif and /case/report are deterministic projections', async () => {
+  const sarif = await call(`${ROUTE_BASE}/case/sarif`, { url: `${ROUTE_BASE}/case/sarif?sessionId=sess-api` })
+  assert.equal(sarif.status, 200)
+  assert.equal(sarif.payload.data.version, '2.1.0')
+  const report = await call(`${ROUTE_BASE}/case/report`, { url: `${ROUTE_BASE}/case/report?sessionId=sess-api` })
+  assert.equal(report.status, 200)
+  assert.match(report.payload.data.markdown, /findings report/)
+})
+
+await report.check('GET /tools/catalog serves the GitHub-only catalog and POST /tools/install rejects unknown ids', async () => {
+  const listing = await call(`${ROUTE_BASE}/tools/catalog`)
+  assert.equal(listing.status, 200)
+  assert.ok(Array.isArray(listing.payload.data) && listing.payload.data.length > 0)
+  const jadx = listing.payload.data.find((entry) => entry.id === 'jadx')
+  assert.ok(jadx, 'jadx must be catalogued')
+  assert.match(jadx.repo, /^https:\/\/github\.com\//)
+  const rejected = await post(`${ROUTE_BASE}/tools/install`, { id: 'ghost-tool' })
+  assert.equal(rejected.status, 400)
+  assert.match(rejected.payload.error, /unknown catalog tool/)
 })
 
 report.finish()

@@ -1,6 +1,6 @@
 {
   "name": "helmd",
-  "version": "0.5.2-fork.1",
+  "version": "0.5.3-fork.1",
   "private": true,
   "type": "module",
   "main": "packages/helmd/dist/health.js",
@@ -43,7 +43,13 @@
     "build": "pnpm -r build",
     "typecheck": "pnpm -r exec tsc -p tsconfig.json --noEmit",
     "test:preset": "node scripts/test-gen-preset.mjs",
-    "test:checks": "node scripts/checks/run-all.mjs"
+    "test:checks": "node scripts/checks/run-all.mjs",
+    "gen:refs": "node scripts/gen-references-index.mjs",
+    "check:refs": "node scripts/gen-references-index.mjs --check",
+    "team:eval": "node scripts/team-eval.mjs",
+    "test:pack": "node scripts/verify-pack.mjs",
+    "sync:root": "node scripts/sync-root-shim.mjs",
+    "check": "pnpm build && pnpm typecheck && pnpm test:checks"
   },
   "devDependencies": {
     "@types/node": "^24.0.0",

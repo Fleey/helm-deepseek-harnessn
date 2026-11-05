@@ -141,6 +141,13 @@ function tunnelAgent(socket) {
     return agent;
 }
 export async function requestText(url, init) {
+    const response = await requestBuffer(url, init);
+    return { status: response.status, text: response.buffer.toString('utf8') };
+}
+/** Proxy-aware binary fetch; requestText is the UTF-8 view of this. Follows a
+ *  bounded redirect chain (GitHub release downloads 302 to a signed asset URL)
+ *  and never forwards Authorization across hosts. */
+export async function requestBuffer(url, init, hops = 0) {
     const target = new URL(url);
     const secure = target.protocol === 'https:';
     const port = Number(target.port || (secure ? 443 : 80));
@@ -168,7 +175,32 @@ export async function requestText(url, init) {
             const chunks = [];
             res.on('data', (chunk) => chunks.push(chunk));
             res.once('end', () => {
-                resolve({ status: res.statusCode ?? 0, text: Buffer.concat(chunks).toString('utf8') });
+                const status = res.statusCode ?? 0;
+                const location = res.headers.location;
+                if (status >= 300 && status < 400 && typeof location === 'string' && location !== '') {
+                    if (hops >= 5) {
+                        reject(new Error(`too many redirects: ${target.hostname}`));
+                        return;
+                    }
+                    if (init.method !== 'GET' && init.method !== 'HEAD' && status !== 307 && status !== 308) {
+                        reject(new Error(`refusing to redirect ${init.method} with HTTP ${String(status)}`));
+                        return;
+                    }
+                    let next;
+                    try {
+                        next = new URL(location, target);
+                    }
+                    catch {
+                        reject(new Error(`invalid redirect from ${target.hostname}`));
+                        return;
+                    }
+                    const nextHeaders = { ...init.headers };
+                    if (next.hostname !== target.hostname)
+                        delete nextHeaders.authorization;
+                    resolve(requestBuffer(next.href, { ...init, headers: nextHeaders }, hops + 1));
+                    return;
+                }
+                resolve({ status, buffer: Buffer.concat(chunks) });
             });
             res.once('error', reject);
         });

@@ -30,7 +30,7 @@ Official QQ group: **213266664**
 
 ### Armor-piercing, all-in-one
 
-Reverse engineering, unpacking, license bypass and pentest workflows — Android · Web · Native · Protocol · Malware · AI-Security converge in a single preset, together with the evidence chain. Install once and all 33 tools are ready — no per-domain wiring.
+Reverse engineering, unpacking, license bypass and pentest workflows — Android · Web · Native · Protocol · Malware · AI-Security converge in a single preset, together with the evidence chain. Install once and all 49 tools are ready — no per-domain wiring.
 
 </td>
 <td width="50%">
@@ -46,14 +46,14 @@ Everything converges into a single `@adwmc/helm-d` bundle: bootstrap, router, do
 
 ### Knowledge on demand
 
-Domain knowledge, rules, workflows and cases live in `references/` (365 docs) and are read on demand — never injected into the system prompt to decide for the model. Lean tokens, intact judgment.
+Domain knowledge, rules, workflows and cases live in `references/` (353 docs + 9 indexes) and are read on demand — never injected into the system prompt to decide for the model. Lean tokens, intact judgment.
 
 </td>
 <td width="50%">
 
 ### First-turn tool anchoring
 
-The first top-level request only exposes shell + `read`; the full catalog of 33 tools opens after promotion. A text-only first reply can't trap the session — request two always sees the full catalog.
+The first top-level request only exposes shell + `read`; the full catalog of 49 tools opens after promotion. A text-only first reply can't trap the session — request two always sees the full catalog.
 
 On Windows, the native terminal tool is `pwsh`. To use WSL, call `wsl.exe` through
 `pwsh`, for example `wsl.exe -- bash -lc 'command'` (or
@@ -70,7 +70,7 @@ DSH security-analysis capability used to be scattered across domain bundles: `ad
 
 helmd packs six domains + evidence tooling + first-turn bootstrap + the runtime hook layer + toolbox into one bundle:
 
-`one preset` &ensp; `one bundle` &ensp; `33 tools` &ensp; `zero manual wiring`
+`one preset` &ensp; `one bundle` &ensp; `49 tools` &ensp; `zero manual wiring`
 
 Install once, send `helmd` in a session, and every domain's tools are ready.
 
@@ -144,7 +144,7 @@ A helmd session follows these fixed rules:
 
 | Rule | Behavior |
 |------|----------|
-| Knowledge on demand | All 365 reference docs live in `references/`, read via `read_reference`, never injected into the system prompt |
+| Knowledge on demand | All 353 reference docs live in `references/`, read via `read_reference`, never injected into the system prompt |
 | Catalog = metadata | `skill_catalog` only routes domains/signals and draws no conclusions: `tree` triage, `methodology`, `patterns`, `install` tool setup, `jvm` JVM decryption, etc. |
 | References ≠ hard rules | Docs inform the model's judgment; they are never binding constraints |
 
@@ -244,10 +244,10 @@ helmd has been submitted to [awesome-dsh-plugin](https://github.com/awesome-dsh-
 
 ```bash
 # Prebuilt tarball (skips build approval)
-dsh plugin --profile web add https://github.com/ADWMC/helm-d/releases/download/v0.5.2/helmd.tgz
+dsh plugin --profile web add https://github.com/Fleey/helm-deepseek-harnessn/releases/download/vX.Y.Z/helmd.tgz
 
 # Or from source
-dsh plugin --profile web add github:ADWMC/helm-d/tree/main/packages/helmd
+dsh plugin --profile web add https://github.com/Fleey/helm-deepseek-harnessn.git
 ```
 
 **A store install delivers everything, preset included (tools + bootstrap + router + the composition row). Only after upgrading the dsh host should you re-derive the platform rows against the local host:**
@@ -408,9 +408,9 @@ helmd/
 │       │   ├── router.ts      skill_catalog / read_reference routing
 │       │   ├── health.ts      settings-page health face (boot-time fingerprint eval → settings namespace)
 │       │   ├── seam.ts        shared IO seam (fs / subprocess / cmd resolve / path guard)
-│       │   └── tools/         10 tool modules (33 tools)
+│       │   └── tools/         16 tool modules (49 tools)
 │       ├── client.js          browser half: settings-page health card + workbench (lazy-CJS factory, no build chain)
-│       ├── references/        365 on-demand reference docs (8 domains + toolbox)
+│       ├── references/        353 on-demand reference docs (8 domains + 9 indexes)
 │       ├── scripts/           analysis scripts + ai-security corpus/ledger + gen-preset.mjs + setup-preset.{ps1,sh}
 │       ├── presets/           persona single source + preset.yml (picker order/description)
 │       ├── preset.generated.patch.yml  preset artifact (generated: host standard + persona + helmd row)

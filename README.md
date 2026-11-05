@@ -2,9 +2,11 @@
 
 # helm-d
 
-<p align="center"><strong>Version 0.5.2-fork.1</strong></p>
+<p align="center"><strong>Version 0.5.3-fork.1</strong></p>
 
 **DeepSeek Harness 破甲安全分析插件**
+
+49 个工具 · 353 篇参考正文 + 9 个索引 · 证据链强制入链 · 四档破甲热切换 · 本地 Team 协作
 
 多破甲热切换 · 证据强制入链 · 33 工具 · 365 篇按需参考 · Android / Web / Native / Protocol / Malware / AI-Security 六域即开即用
 
@@ -51,6 +53,11 @@
 ### 桌面版安装（30 秒版）
 
 DSH NEXT → 设置 → 插件 → 添加。**推荐 release tarball URL**（单包完整、probe 必过、dist 内置；用带 `vX.Y.Z` 的版本化地址——`latest/download` 是滚动地址，写进 profile 依赖后下次发版会让 pnpm lockfile 的 sha512 失配 `ERR_PNPM_TARBALL_INTEGRITY`）：
+
+- **49 个工具**：Android / Web / Native / Protocol / Malware / AI-Security，加上 Case 生命周期、路由、本地 Team 调度、Recon / PoC / Mining 与工具箱。
+- **证据链**：工具输出自动落 `evidence/`，结论必须引用 E 编号和可复现的 `repro_cmd`。
+- **按需知识**：353 篇参考正文 + 9 个索引由 `read_reference` 读取，不塞进 system prompt。
+- **三档破甲**：core / stealth / redteam-max（fork 主档 id 为 core，上游 0.5.3 的 ds4.1f / gpt-6x 不在 fork 内），工作台一键热切换，下一次模型调用生效。
 
 ```text
 https://github.com/Fleey/helm-deepseek-harnessn/releases/download/v0.5.2-fork.1/helmd.tgz
@@ -120,7 +127,7 @@ github:Fleey/helm-deepseek-harnessn#main&path:packages/helmd
 **前提**：已安装 [`dsh`](https://github.com/deepseek-ai/deepseek-harness) CLI。
 
 ```bash
-dsh plugin --profile web add https://github.com/ADWMC/helm-d/releases/download/v0.5.2/helm-d.tgz
+dsh plugin --profile web add https://github.com/Fleey/helm-deepseek-harnessn/releases/download/vX.Y.Z/helmd.tgz
 ```
 
 安装器在本机按你已装的 dsh 宿主实时派生 preset（`gen-preset.mjs`），平台工具行永远匹配你自己的 dsh 版本。然后：
@@ -147,6 +154,11 @@ dsh web
 | RE-2 | 逆向 | 工程件 | ✅ 3,416 字参数化求解脚本 | 425.1s |
 
 原始数据（本地归档）：`probe/v9-final-60s/` + `probe/finalpersona-r1..r4/`。全轮分析见 [docs/reports/FINAL-REPORT-v9.md](docs/reports/FINAL-REPORT-v9.md)。
+
+1. 新建 DSH 会话，把 Agent 预设切到 **helmd**。
+2. 发送 `helmd` 激活。
+3. 先做一个读文件/列目录动作。首轮只暴露 `shell + read`，下一轮 49 个工具（含 `begin_case`）才会出现——这是宿主晋升机制，不是插件坏了。
+4. 直接下任务，例如：
 
 ## 多破甲
 
@@ -180,11 +192,53 @@ end_case(summary)
 
 规则写在代码里（`caseflow.ts`），不是写在提示词里求模型遵守。
 
-## 33 工具
+## 能力
+
+| 能力 | 说明 |
+|---|---|
+| **六域工具** | Android 脱壳/Frida、Web 漏洞、Native 壳与反逆向、Protocol 抓包、Malware IOC/YARA、AI-Security |
+| **Case 与证据链** | 磁盘工作区 + 自动入链 + E 编号校验 + `repro_cmd` 门禁；压缩上下文后 `case_status` 能从磁盘恢复 |
+| **三档破甲** | core / stealth / redteam-max（fork 主档 id 为 `core`），`POST /api/helmd/profile` 原地重注册 persona section，无需重启 |
+| **按需参考** | 353 篇正文 + 9 个索引，`skill_catalog` 路由、`read_reference` 按需读取，不占 system prompt |
+| **自主状态包** | `case_status` 返回假设链、findings、证据、dead ends、匹配 playbook、下一步建议 |
+| **工作台** | 破甲 / Case / Team / 工具 / 拦截 / 设置 / 关于七个 tab，侧边栏入口，数据走 `/api/helmd/*` |
+
+<details>
+<summary>三档破甲的区别（展开）</summary>
+
+| Profile | 定位 | 内容 |
+|---|---|---|
+| **core** | 全能主档（默认） | 完整主档规则（v10 全量） |
+| **stealth** | 轻量隐匿 | core + 最小输出 / 只读优先 / 单目标收敛 |
+| **redteam-max** | 渗透加厚 | core + 全链路攻击链 / 攻防双栏 / 产物成套 |
+
+三档都封印在 `profiles.dat`；切换后旧 section 被 dispose 并原地重注册，无需重启宿主。
+
+</details>
+
+## 工作台
+
+DSH 会话头部点 `helmd 工作台`，优先打开右侧栏（sidebar 不可用时回退浮层）：
+
+- **破甲**：四档实时切换。
+- **Case**：当前会话绑定的 case——假设链、结论、证据列表、未决假设；未绑定时显示提示与磁盘最近 case，不再自动展示别的会话。
+- **Team**：本地多 agent 协作——ticket、角色 worker、报告、证据、evolution revision 与 A/B gate。
+- **工具**：外部工具 catalog（仅 GitHub 仓库）、安装状态、release 资产安装/卸载。
+- **拦截**：流式拒绝拦截的计数与摘录。
+- **设置**：Team 并发/默认角色/自动建单、拦截开关、自主辅助、Star 延迟——与 DSH 设置页同源。
+- **关于**：版本、作者、免责声明、更新地址、更新日志与“检查更新”。
+
+## 工具
+
+最常用的入口：`begin_case` / `case_status` / `record_finding` / `update_finding` / `end_case` / `route_task` / `read_reference` / `analysis_mode` / `team_create` / `team_dispatch` / `team_status`。
+
+<details>
+<summary><strong>49 个工具（按域展开）</strong></summary>
 
 | 域 | 工具 |
 |----|------|
-| **Case** | `begin_case` `case_status` `record_hypothesis` `update_hypothesis` `record_finding` `save_evidence` `end_case` |
+| **Case** | `begin_case` `case_status` `record_finding` `update_finding` `save_evidence` `end_case` |
+| **Case / 假设** | `record_hypothesis` `update_hypothesis` |
 | **路由/知识** | `skill_catalog` `read_reference` `route_task` `analysis_mode` |
 | **Android** | `apk_fingerprint` |
 | **Web** | `web_reference` `bot_analyze` |
@@ -193,7 +247,10 @@ end_case(summary)
 | **Malware** | `malware_reference` `ioc_extract` `yara_gen` |
 | **AI-Security** | `ai_reference` `llm_sim` |
 | **Evidence** | `evidence_reference` `triage_artifact` `hash_artifact` |
-| **Toolbox** | `tool_recommend` `tool_memory` |
+| **Recon** | `recon_passive` `recon_ports` `recon_http` `recon_crawl` `recon_import` |
+| **PoC / Mining / OOB** | `run_poc` `mine_candidates` `oob_start` `oob_poll` `oob_stop` |
+| **Toolbox** | `tool_recommend` `toolbox` |
+| **Team** | `team_dispatch` `team_create` `team_status` `team_report` `team_steer` |
 
 ## 365 篇参考按需读
 
@@ -209,6 +266,8 @@ end_case(summary)
 | AI-Security | `references/ai-security/index.md` | 提示注入、越狱方法论、模型防御画像 |
 | Evidence | `references/evidence/index.md` | 分诊工作流、报告模板、证据分级 |
 | Toolbox | `references/toolbox/index.md` | 工具安装、货架、版本坑位 |
+
+353 篇正文 + 9 个索引在 [`references/`](packages/helmd/references/index.md)。模型用 `read_reference` 按需读取，参考是弹药，不是硬规则。
 
 ## 架构
 
@@ -285,6 +344,12 @@ helmd 会话头部 `[helmd 工作台 ▾]` 胶囊按钮就地弹出工作台，�
 - **模型评测**：模型响应分类、首段与延迟记录
 - **拦截日志**：流式拒绝拦截闭环的计数与摘录
 
+```bash
+# 更新：先卸载，再装目标版本（不要用 latest/download）
+dsh plugin --profile web remove @adwmc/helm-d
+dsh plugin --profile web add https://github.com/Fleey/helm-deepseek-harnessn/releases/download/vX.Y.Z/helmd.tgz
+```
+
 ## 实战案例
 
 **BoosterX v2.2.4.3 (.NET) 许可证绕过**——helmd 方法论的完整实战验证：ConfuserEx 动态防护下活体还原 **32,316 个方法体**、解密 **7,726 条加密常量**、运行时提取 RSA-2048 公钥、零修改官方托管扩展完成持久化解锁。附完整证据链。
@@ -305,6 +370,8 @@ helmd 会话头部 `[helmd 工作台 ▾]` 胶囊按钮就地弹出工作台，�
 | `@deepseek-ai/cordis` | `^4.0.2` | `4.0.4` |
 | `@deepseek-ai/dsh-tools` / `dsh-settings` | `>=0.1.5-rc.1 <0.2.0-0 \|\| >=0.2.0-rc.1 <0.2.2-0` | `0.2.1-rc.2` |
 | `@deepseek-ai/schemastery` | `^3.18.2` | `3.18.4` |
+
+把 `vX.Y.Z` 换成目标 Release 的 tag；不要用 `releases/latest/download/*` 作为 profile 依赖。
 
 ## 文档
 

@@ -1,5 +1,17 @@
 // Autonomy packet: the model-facing state needed to decide the next step.
 // Pure functions only — case_status and the post-tool nudge feed them disk state.
+/** T-04: three consecutive identical tool+args calls with no evidence growth
+ *  are a dead path. The caller supplies whether evidence grew since the last
+ *  snapshot; absence of that snapshot never triggers. */
+export function detectNoPath(calls, evidenceGrew) {
+    if (evidenceGrew || calls.length < 3)
+        return undefined;
+    const tail = calls.slice(-3).map((call) => `${call.name}\u0000${call.args}`);
+    if (tail.every((key) => key === tail[0])) {
+        return `same tool+args repeated 3x (${calls[calls.length - 1].name}) with no new evidence; switch path or report blocked`;
+    }
+    return undefined;
+}
 const WEB_RE = /(?:^|[^a-z])(web|http|https|sqli|xss|ssrf|ssti|xxe|rce|lfi|idor|jwt|oauth|csrf|pentest|渗透|内网|横向|域控|kerberos|活动目录)(?:[^a-z]|$)/i;
 /** Pick the playbook that fits the case goal. Discovery only — no phase gate. */
 export function playbookFor(goal) {
@@ -50,12 +62,11 @@ export function warningsFor(input) {
 }
 /** Compact packet appended to case_status. The model reads this instead of disk. */
 export function renderAutonomyPacket(input) {
-    const lines = [
-        '[autonomy]',
-        `mode: ${input.mode}`,
-        `playbook: ${playbookFor(input.goal ?? '')}`,
-        'triggers: references/playbooks/triggers.yaml',
-    ];
+    const lines = [];
+    if (input.noPath !== undefined && input.noPath.trim() !== '') {
+        lines.push(`[NO_PATH] ${input.noPath.trim()}`);
+    }
+    lines.push('[autonomy]', `mode: ${input.mode}`, `playbook: ${playbookFor(input.goal ?? '')}`, 'triggers: references/playbooks/triggers.yaml');
     const open = input.hypotheses.find((h) => h.status === 'open');
     if (open !== undefined) {
         lines.push(`open hypothesis: ${open.id} — ${open.statement}`, `  expected: ${open.expected}`, `  test: ${open.testCmd}`, `  evidence: ${open.evidenceIds.join(', ') || '(none)'}`);

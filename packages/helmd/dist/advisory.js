@@ -8,7 +8,7 @@
 // submit, and the same ledger answers "did the agent act on what we told it?".
 import { appendFileSync, copyFileSync, mkdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
-import { ledgerDir } from './ledger.js';
+import { runtimeStateDir } from './runtime-paths.js';
 import { ASSISTANT_MESSAGE, eventCount, eventTexts, toolCalls } from './session-log.js';
 const TIER_ORDER = { mandatory: 0, recommended: 1, hint: 2 };
 const DEMOTE_AFTER = 3;
@@ -18,9 +18,9 @@ const LEDGER_KEEP_ROWS = 5000;
 /** Sessions held in memory; the oldest insertion is evicted (no session-close hook exists). */
 const MAX_PENDING_SESSIONS = 64;
 const pending = new Map();
-/** Advisory ledger path; shares the tool-ledger directory so it survives with it. */
+/** Advisory ledger path; shares the runtime state directory with transport logs. */
 export function advisoryLedgerPath() {
-    return join(ledgerDir(), 'advisories.jsonl');
+    return join(runtimeStateDir(), 'advisories.jsonl');
 }
 /** Submit or refresh one advisory for a session. `atEventCount` anchors the proof window. */
 export function submitAdvisory(sessionId, advisory, atEventCount) {
@@ -97,7 +97,7 @@ function record(entry) {
     const path = advisoryLedgerPath();
     try {
         // The ledger directory is created by the tool ledger on its first write. An advisory
-        // can be reckoned before any tool_memory call ever ran, and a bare appendFileSync into
+        // can be reckoned before any other runtime write, and a bare appendFileSync into
         // a missing directory throws ENOENT — swallowed below, so the row would be lost with
         // no signal while the tally stays empty and every adaptive reminder keeps teaching.
         ensureDir(path);

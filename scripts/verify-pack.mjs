@@ -23,9 +23,6 @@ const tarballArgIndex = argv.indexOf('--tarball')
 const tarballArg = tarballArgIndex >= 0 ? argv[tarballArgIndex + 1] : undefined
 
 const EXPECTED = new Set([
-  // LICENSE is auto-included by npm/pnpm pack regardless of the files
-  // whitelist; the repo root carries the MIT text. Not a plaintext leak.
-  'LICENSE',
   'client.js',
   'cordis.patch.yml',
   'dist/health.d.ts',
@@ -38,6 +35,15 @@ const EXPECTED = new Set([
   'presets/preset.yml',
   'presets/profiles.dat',
   'references.dat',
+])
+
+/** Tolerated extras: npm/pnpm pack copies a LICENSE found beside the package
+ *  (or its parent) into the tarball even when `files` does not list it. It is
+ *  not a plaintext leak, so it may appear — but it is not required either,
+ *  because which npm major emits it varies (npm 11 stopped copying the parent
+ *  LICENSE into a workspace package). */
+const ALLOWED_EXTRA = new Set([
+  'LICENSE',
 ])
 
 const FORBIDDEN_PREFIXES = [
@@ -151,7 +157,7 @@ function payloadFiles(pkg) {
 function verify(pkg, source) {
   const got = new Set(pkg.files)
   const missing = [...EXPECTED].filter((f) => !got.has(f))
-  const unexpected = [...got].filter((f) => !EXPECTED.has(f))
+  const unexpected = [...got].filter((f) => !EXPECTED.has(f) && !ALLOWED_EXTRA.has(f))
 
   if (missing.length > 0) fail(`${source}: missing ${missing.join(', ')}`)
   if (unexpected.length > 0) fail(`${source}: unexpected ${unexpected.join(', ')}`)
