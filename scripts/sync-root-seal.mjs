@@ -1,11 +1,16 @@
 #!/usr/bin/env node
-// scripts/prepare-github-install.mjs — make a git install of this repo loadable.
+// scripts/sync-root-seal.mjs — sync sealed artifacts to the repo root (maintainer tool).
 //
-// The fork repo is a pnpm monorepo, but the sealable deliverable is the
-// packages/helmd subpackage. npm/pnpm run `prepare` after checking out a
-// `github:` dependency, so this script copies the committed sealed artifacts
-// from packages/helmd to the repo root, where the root package.json's
-// `main`/`exports` and the sealed stubs expect them:
+// The fork repo is a pnpm monorepo, but profile installs use
+// `github:Fleey/helm-deepseek-harnessn`, and the host that runs those installs
+// has NO package manager on PATH (only node), so a `prepare` lifecycle hook
+// can never work there (pnpm's git-fetcher injects `<pm> install` first and
+// dies with spawn ENOENT). Instead, the root of the repo IS the installable
+// package: this script copies the sealed artifacts from packages/helmd to the
+// root, the maintainer commits them, and a git install is a plain file copy
+// with zero build steps. Run it as part of every release (after build-sealed):
+//
+//   node scripts/sync-root-seal.mjs
 //
 //   client.js                     (root shim — already at the root)
 //   payload.dat / references.dat  (sealed blobs; stubs resolve pkgRoot =
@@ -28,13 +33,13 @@ const pkg = join(root, 'packages', 'helmd')
 function copy(rel) {
 	const src = join(pkg, rel)
 	if (!existsSync(src)) {
-		console.warn(`[prepare-github-install] skip missing ${rel}`)
+		console.warn(`[sync-root-seal] skip missing ${rel}`)
 		return
 	}
 	const dest = join(root, rel)
 	mkdirSync(dirname(dest), { recursive: true })
 	copyFileSync(src, dest)
-	console.log(`[prepare-github-install] ${rel}`)
+	console.log(`[sync-root-seal] ${rel}`)
 }
 
 // Stale extraction cache from a previous load must not shadow the fresh copy.
@@ -50,4 +55,4 @@ copy('dist/health.d.ts')
 copy('dist/index.js')
 copy('dist/index.d.ts')
 
-console.log('[prepare-github-install] done')
+console.log('[sync-root-seal] done')
