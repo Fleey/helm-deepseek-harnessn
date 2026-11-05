@@ -1,4 +1,4 @@
-# gen-preset: host=0d398d2a6872a73a106cb3bd19303ecccf1637e1fcad4d0bf9d8a72d2c2c68f5
+# gen-preset: host=20e4ddfb8b7846ac99e8ffb4ae9143afbf63e11ac0d674871019061d0a17af4c
 
 - insert:
     - id: preset-helmd
@@ -127,7 +127,7 @@
             disabled: true
           - id: tool-plugin-market
             name: '@deepseek-ai/dsh-plugin-market/tools'
-            disabled: true
+            disabled: tr
           - id: tool-agent-team
             name: '@deepseek-ai/dsh-experimental-tool-agent-team'
           - id: helmd
