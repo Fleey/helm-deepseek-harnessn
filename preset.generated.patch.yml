@@ -131,7 +131,7 @@
           - id: tool-agent-team
             name: '@deepseek-ai/dsh-experimental-tool-agent-team'
           - id: helmd
-            name: 'helmd/agent'
+            name: '@adwmc/helm-d/agent'
     - id: agent-team
       name: '@deepseek-ai/dsh-experimental-agent-team'
       config:
