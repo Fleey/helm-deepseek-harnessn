@@ -4,6 +4,19 @@
 完整发布注记与资产见 [GitHub Releases](https://github.com/ADWMC/helm-d/releases)。
 官方QQ群：**213266664**
 
+## [0.5.3-fork.7] — 2026-11-05（fork：合并 fork.6 线 + github: 直装修复 + 关于页文案对齐）
+
+将 `sync-upstream-0.5.3` 分支（fork.3：peer 放宽 / 标签延迟释放 / 关于页文案）与 `main` 分支（fork.4/5/6：0.2.2 预设快照重生成 / 标签持有+宽限 / Team 工具双安装修复）合流，双线检查集（34 项）全绿。
+
+### 叠加修复（main 线没有的）
+
+- **github: 直装产物缺失**：本仓库 monorepo 形状下 dshmarket git 安装把源码树原样拷进 node_modules，子包 stub 的 pkgRoot 处没有 `payload.dat`，agent 装载失败（胶囊/tab 消失），手工部署的密封包每次重装都被覆盖。修复：`scripts/prepare-github-install.mjs`（npm/pnpm `prepare` 钩子自动铺密封产物到仓库根，零依赖）+ 根 `main`/`exports` 改指根 `dist`。宿主侧需允许 helmd 的 prepare 脚本（pnpm `onlyBuiltDependencies` 或市场 approve-builds）
+- **关于页 fallback 文案对齐**：实际档位为 `core` / `stealth` / `redteam-max`（fork 裁决不引入上游 `ds4.1f` / `gpt-6x`），旧文案仍列上游四档造成「档位缺失」误解；顺带把 tab 列表与工具数（49）更新到当前实际值
+
+### 版本
+
+- `0.5.3-fork.6` → `0.5.3-fork.7`（根 + packages/helmd + README）
+
 ## [0.5.3-fork.6] — 2026-11-05（fork：与官方 Agent Teams bundle 并存时不再重复安装团队工具）
 
 ### 修复
