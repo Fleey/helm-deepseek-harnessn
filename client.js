@@ -199,6 +199,71 @@ exports.apply = function apply(ctx) {
 		);
 	}
 
+	// The helmd tab is held, not toggled. The host's tab registry is global,
+	// and any change to it makes the host re-pick every open session's view
+	// (`restoreView`). On DSH 0.2.2 a session whose agent is released also
+	// leaves the session list for a moment (`session/disposed` →
+	// `api-session/removed`), taking its projections with it, so the capsule
+	// briefly reads `agentPreset` as undefined. Disposing the tab right then
+	// moved the view, which reopened the session, which brought the preset
+	// back and registered the tab again: the session, its title and the tab
+	// flickered in a loop (~8 cycles/s, one agent created and disposed per
+	// cycle). Every helmd capsule on screen now holds the tab, and it is let
+	// go only after a short grace with no holder left. (fork, 2026-11-05)
+	const WORKBENCH_RELEASE_GRACE_MS = 1500;
+	const workbenchHolders = new Set();
+	let workbenchDispose = null;
+	let workbenchReleaseTimer = null;
+
+	function registerWorkbenchView() {
+		if (workbenchDispose !== null) return;
+		try {
+			workbenchDispose = ctx.slots.inject("conversation.view", function* () {
+				yield ctx.slots.register(WORKBENCH_VIEW_OPTIONS, HelmdWorkbenchView);
+			});
+		} catch (err) {
+			workbenchDispose = null;
+		}
+	}
+
+	function disposeWorkbenchView() {
+		const dispose = workbenchDispose;
+		workbenchDispose = null;
+		if (typeof dispose === "function") {
+			try { dispose(); } catch (err) {}
+		}
+	}
+
+	function cancelWorkbenchRelease() {
+		if (workbenchReleaseTimer === null) return;
+		clearTimeout(workbenchReleaseTimer);
+		workbenchReleaseTimer = null;
+	}
+
+	function holdWorkbenchView(holder) {
+		workbenchHolders.add(holder);
+		cancelWorkbenchRelease();
+		registerWorkbenchView();
+	}
+
+	function releaseWorkbenchView(holder) {
+		workbenchHolders.delete(holder);
+		if (workbenchHolders.size > 0 || workbenchReleaseTimer !== null) return;
+		workbenchReleaseTimer = setTimeout(function () {
+			workbenchReleaseTimer = null;
+			if (workbenchHolders.size === 0) disposeWorkbenchView();
+		}, WORKBENCH_RELEASE_GRACE_MS);
+	}
+
+	// Plugin unload drops the tab at once, pending grace or not.
+	if (typeof ctx.effect === "function") {
+		ctx.effect(() => () => {
+			cancelWorkbenchRelease();
+			workbenchHolders.clear();
+			disposeWorkbenchView();
+		}, "helmd: workbench view presence");
+	}
+
 	function HelmdPresetCapsuleButton(props) {
 		const preset = props.useSessions ? props.useSessions(function (state) {
 			const s = state.byId && state.byId[props.sessionId];
@@ -218,22 +283,20 @@ exports.apply = function apply(ctx) {
 		// conversation view with it. (fork fix, 2026-11-05)
 		const [open, setOpen] = React.useState(false);
 		const rootRef = React.useRef(null);
+		// This capsule's own claim on the shared tab, stable across renders.
+		const holderRef = React.useRef(null);
+		if (holderRef.current === null) holderRef.current = {};
 
-		// The session tab (对话/轨迹/helmd) exists only while THIS session runs
-		// the helmd preset: register the conversation.view entry on mount and
-		// dispose it on unmount / preset change. (fork)
+		// The session tab (对话/轨迹/helmd) exists while a capsule on screen
+		// sees the helmd preset. It is held here and released on unmount /
+		// preset change; the release waits out the grace above, so a session
+		// that drops out of the list and comes straight back keeps its tab. (fork)
 		React.useEffect(() => {
 			if (preset !== "helmd") return undefined;
-			let dispose = null;
-			try {
-				dispose = ctx.slots.inject("conversation.view", function* () {
-					yield ctx.slots.register(WORKBENCH_VIEW_OPTIONS, HelmdWorkbenchView);
-				});
-			} catch (err) {}
+			const holder = holderRef.current;
+			holdWorkbenchView(holder);
 			return () => {
-				if (typeof dispose === "function") {
-					try { dispose(); } catch (err) {}
-				}
+				releaseWorkbenchView(holder);
 			};
 		}, [preset]);
 
