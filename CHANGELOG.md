@@ -4,6 +4,13 @@
 完整发布注记与资产见 [GitHub Releases](https://github.com/ADWMC/helm-d/releases)。
 官方QQ群：**213266664**
 
+## [0.5.3-fork.3] — 2026-11-05（fork：放行 DSH 0.2.2 系列宿主）
+
+### 修复
+
+- **DSH 0.2.2-rc.1 上被拒装 / 拒载**：DSH NEXT 自动升级到 0.2.2-rc.1 后，根包与 10 个子包对 `@deepseek-ai/dsh-settings` / `@deepseek-ai/dsh-tools` 的 peer 上限 `<0.2.2-0` 不再满足。插件管理器在安装后会校验整个 profile，于是拒绝整次操作（报错落在当次被安装/更新的插件名下，并非 helmd 自己），宿主启动时也会拒载 helmd。peer 上限放宽为 `<0.2.3-0`，即 `>=0.1.5-rc.1 <0.2.0-0 || >=0.2.0-rc.1 <0.2.3-0`；编译期 cohort 仍为 `0.2.1-rc.2`
+- **兼容性核对**：helmd 运行期只从 `dsh-tools` 取 `defineTool`，另用 `tools.register` / `tools.schemas` 与 `systemPrompt.section` / `context` / `getSectionOrder`。对照 0.2.1-rc.4 与 0.2.2-rc.1 宿主：`defineTool` 实现逐行一致，`tools.register` 仅新增可选 `options`，`tools.schemas` 仅新增可选 `toolSet`，`systemPrompt` 三个方法不变。`scripts/checks/run-all.mjs` 以 DSH NEXT 自带运行时（`ELECTRON_RUN_AS_NODE=1`，Node 24.21.0）跑在 0.2.2-rc.1 宿主包上 32/32 PASS（`ui-tokens` 因本机无 web 前端资源 SKIP）
+
 ## [0.5.3-fork.2] — 2026-11-05（fork：修复工作台胶囊条件 Hook 崩溃 — 会话内容区空白）
 
 ### 修复
