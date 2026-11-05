@@ -117,7 +117,7 @@ export interface HelmdHealth {
  * request with exactly [pwsh, read] on Windows / [bash, read] elsewhere) stays with the operator — it cannot be produced from
  * inside the process that is being asserted.
  */
-export declare function assertPresetArtifact(deployed: string, hostStandardText: string): {
+export declare function assertPresetArtifact(deployed: string, hostStandardText: string, packageName?: string): {
     ok: boolean;
     detail: string;
 };

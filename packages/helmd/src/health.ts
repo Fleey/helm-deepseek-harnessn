@@ -25,7 +25,7 @@
  */
 import { createHash } from 'node:crypto'
 import { spawnSync } from 'node:child_process'
-import { copyFileSync, existsSync, readFileSync } from 'node:fs'
+import { copyFileSync, existsSync, readFileSync, writeFileSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -222,6 +222,35 @@ function resolveGenerator(): string | null {
   }
 }
 
+/** The subpackage name gen-preset writes into the helmd agent row. */
+const SUBPACKAGE_NAME = '@adwmc/helm-d'
+
+/**
+ * Name of the package this module is mounted under — the one the preset's
+ * helmd agent row must name. The repo root installs as `helmd` (a `github:`
+ * profile install), the subpackage as `@adwmc/helm-d`, and the two preset
+ * copies differ in exactly that row (scripts/sync-root-shim.mjs). Since
+ * fork.7 this module runs from the repo root, so judging the root copy by
+ * the subpackage's name marked it STALE on every boot and the auto-heal
+ * regenerated it with `@adwmc/helm-d/agent` — a package a `github:` install
+ * does not have: ERR_MODULE_NOT_FOUND, the `helmd` row never started, the
+ * preset mount was rejected and every helmd session vanished on open.
+ */
+function mountedPackageName(): string {
+  try {
+    const name = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8')).name
+    return typeof name === 'string' && name.trim() !== '' ? name : SUBPACKAGE_NAME
+  } catch {
+    return SUBPACKAGE_NAME
+  }
+}
+
+/** Rewrite gen-preset's agent row to name the package that is actually mounted. */
+function retargetAgentRow(text: string, packageName: string): string {
+  if (packageName === SUBPACKAGE_NAME) return text
+  return text.split(`name: '${SUBPACKAGE_NAME}/agent'`).join(`name: '${packageName}/agent'`)
+}
+
 /**
  * Top-level plugin-row ids of either preset shape (mirrors gen-preset.mjs):
  * ids directly under a `plugins:` list (0.1.7 — group children sit deeper and
@@ -252,7 +281,11 @@ function rowIds(text: string): string[] {
  * request with exactly [pwsh, read] on Windows / [bash, read] elsewhere) stays with the operator — it cannot be produced from
  * inside the process that is being asserted.
  */
-export function assertPresetArtifact(deployed: string, hostStandardText: string): { ok: boolean; detail: string } {
+export function assertPresetArtifact(
+  deployed: string,
+  hostStandardText: string,
+  packageName: string = SUBPACKAGE_NAME,
+): { ok: boolean; detail: string } {
   const hostIds = rowIds(hostStandardText)
   const deployedIds = rowIds(deployed)
   // tool-agent-team rides INSIDE the helmd preset's plugins list (host-native
@@ -273,8 +306,12 @@ export function assertPresetArtifact(deployed: string, hostStandardText: string)
   if (!deployed.includes("'@deepseek-ai/dsh-agent-preset'")) {
     return { ok: false, detail: 'the entry does not declare @deepseek-ai/dsh-agent-preset' }
   }
-  if ((deployed.match(/@adwmc\/helm-d/g) ?? []).length !== 1) {
-    return { ok: false, detail: 'the helmd row is not declared exactly once' }
+  const agentRow = `name: '${packageName}/agent'`
+  if (deployed.split(agentRow).length - 1 !== 1) {
+    return { ok: false, detail: `the helmd row is not declared exactly once as ${packageName}/agent` }
+  }
+  if (packageName !== SUBPACKAGE_NAME && deployed.includes(SUBPACKAGE_NAME)) {
+    return { ok: false, detail: `the preset names ${SUBPACKAGE_NAME}, which is not installed here (this package mounts as ${packageName})` }
   }
   // v2: the persona ships sealed in profiles.dat — the patch carries an EMPTY
   // persona prefix. The activation line lives in presets/profiles/core.md
@@ -287,7 +324,7 @@ function artifactVerdict(health: HelmdHealth): string {
   try {
     const deployed = readFileSync(health.presetPath, 'utf8')
     const host = readFileSync(health.hostPath, 'utf8')
-    const result = assertPresetArtifact(deployed, host)
+    const result = assertPresetArtifact(deployed, host, mountedPackageName())
     return result.ok ? `artifact check OK (${result.detail})` : `ARTIFACT CHECK FAILED: ${result.detail}`
   } catch {
     return 'artifact check skipped (files unreadable)'
@@ -327,6 +364,12 @@ function autoHealPreset(): { healed: boolean; verdict: string } {
     if (res.status !== 0) {
       const why = String(res.stderr || res.error?.message || '').trim().split('\n').slice(-1)[0] ?? ''
       return { healed: false, verdict: `failed (exit ${String(res.status)}${why ? `: ${why}` : ''})` }
+    }
+    // gen-preset always names the subpackage; a repo-root install mounts as
+    // `helmd`, so the regenerated file gets the same rename sync-root-shim applies.
+    const packageName = mountedPackageName()
+    if (packageName !== SUBPACKAGE_NAME) {
+      writeFileSync(target, retargetAgentRow(readFileSync(target, 'utf8'), packageName), 'utf8')
     }
     const anchor = process.platform === 'win32' ? '[pwsh, read]' : '[bash, read]'
     return { healed: true, verdict: `restart dsh and assert the first request is ${anchor} (MAINTENANCE §8)` }
