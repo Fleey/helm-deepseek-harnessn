@@ -209,10 +209,19 @@ exports.apply = function apply(ctx) {
 		const [hovered, setHovered] = React.useState(false);
 		const [active, setActive] = React.useState(false);
 
+		// Popover state lives above every early return: hook order must stay
+		// unconditional. These hooks used to sit below the `return null` guards,
+		// so a session whose preset resolves asynchronously (undefined →
+		// "helmd") jumped from 3 to 6 hooks mid-lifetime and React aborted the
+		// whole header-actions slot with "Rendered more hooks than during the
+		// previous render" (Minified React error #300), blanking the session's
+		// conversation view with it. (fork fix, 2026-11-05)
+		const [open, setOpen] = React.useState(false);
+		const rootRef = React.useRef(null);
+
 		// The session tab (对话/轨迹/helmd) exists only while THIS session runs
 		// the helmd preset: register the conversation.view entry on mount and
-		// dispose it on unmount / preset change (hooks stay before the early
-		// returns below — unconditional hook order). (fork)
+		// dispose it on unmount / preset change. (fork)
 		React.useEffect(() => {
 			if (preset !== "helmd") return undefined;
 			let dispose = null;
@@ -227,17 +236,6 @@ exports.apply = function apply(ctx) {
 				}
 			};
 		}, [preset]);
-
-		// If no preset is associated, follow AgentPresetLabel contract and return null
-		if (preset === undefined) return null;
-
-		// Only helm-d sessions get a workbench capsule. Other presets keep the
-		// official AgentPresetLabel untouched: this registration deliberately
-		// uses its own id instead of shadowing `agent-preset`.
-		if (preset !== "helmd") return null;
-
-		const [open, setOpen] = React.useState(false);
-		const rootRef = React.useRef(null);
 
 		// Dismiss on outside click or Escape key
 		React.useEffect(() => {
@@ -259,6 +257,14 @@ exports.apply = function apply(ctx) {
 				document.removeEventListener("keydown", handleKeyDown, true);
 			};
 		}, [open]);
+
+		// If no preset is associated, follow AgentPresetLabel contract and return null
+		if (preset === undefined) return null;
+
+		// Only helm-d sessions get a workbench capsule. Other presets keep the
+		// official AgentPresetLabel untouched: this registration deliberately
+		// uses its own id instead of shadowing `agent-preset`.
+		if (preset !== "helmd") return null;
 
 		// The right sidebar is the primary workbench surface. The popover is only
 		// a fallback for hosts without the sidebarRight service — opening both at

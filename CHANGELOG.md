@@ -4,6 +4,12 @@
 完整发布注记与资产见 [GitHub Releases](https://github.com/ADWMC/helm-d/releases)。
 官方QQ群：**213266664**
 
+## [0.5.3-fork.2] — 2026-11-05（fork：修复工作台胶囊条件 Hook 崩溃 — 会话内容区空白）
+
+### 修复
+
+- **会话内容区空白（React #300）**：`HelmdPresetCapsuleButton`（会话头部「工作台」胶囊）把弹层的 `useState(open)` / `useRef` / 外点关闭 `useEffect` 写在两个 `return null` 早退之后，preset 异步解析（`undefined` → `helmd`）时 Hook 数量 3 → 6 中途变化，React 以 Minified error #300（Rendered more hooks than during the previous render）中止整个 `conversation.session.header.actions` 槽位渲染，级联把会话内容消息区一并拍空，非 helmd 会话同样受影响。宿主日志 `desktop-next-2026-11-03/04/05` 三天均有 `slot entry crashed in 'conversation.session.header.actions'` 记录。修复：弹层三个 Hook 上移至全部早退守卫之前，Hook 顺序无条件稳定；早退逻辑不变
+
 ## [0.5.3-fork.1] — 2026-11-05（fork：同步上游 v0.5.3 — Team 协作 / 证据审计 / Recon·PoC·Mining / Toolbox 2.0）
 
 上游 v0.5.3 的全量移植（`v0.5.2…v0.5.3` 共 33 commits / 92 文件），逐文件三方核对后吸收；fork 桌面适配与无 star-gate 立场全部保留。
