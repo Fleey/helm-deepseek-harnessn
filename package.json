@@ -1,21 +1,21 @@
 {
   "name": "helmd",
-  "version": "0.5.3-fork.3",
+  "version": "0.5.3-fork.6",
   "private": true,
   "type": "module",
-  "main": "dist/health.js",
-  "types": "dist/health.d.ts",
+  "main": "packages/helmd/dist/health.js",
+  "types": "packages/helmd/dist/health.d.ts",
   "exports": {
     ".": {
-      "types": "./dist/health.d.ts",
-      "default": "./dist/health.js"
+      "types": "./packages/helmd/dist/health.d.ts",
+      "default": "./packages/helmd/dist/health.js"
     },
     "./agent": {
-      "types": "./dist/index.d.ts",
-      "default": "./dist/index.js"
+      "types": "./packages/helmd/dist/index.d.ts",
+      "default": "./packages/helmd/dist/index.js"
     },
     "./client": "./client.js",
-    "./dist/*": "./dist/*",
+    "./dist/*": "./packages/helmd/dist/*",
     "./package.json": "./package.json"
   },
   "dsh": {
@@ -35,12 +35,11 @@
   },
   "peerDependencies": {
     "@deepseek-ai/cordis": "^4.0.2",
-    "@deepseek-ai/dsh-settings": ">=0.1.5-rc.1 <0.2.0-0 || >=0.2.0-rc.1 <0.2.2-0",
-    "@deepseek-ai/dsh-tools": ">=0.1.5-rc.1 <0.2.0-0 || >=0.2.0-rc.1 <0.2.2-0",
+    "@deepseek-ai/dsh-settings": ">=0.1.5-rc.1 <0.2.0-0 || >=0.2.0-rc.1 <0.2.3-0",
+    "@deepseek-ai/dsh-tools": ">=0.1.5-rc.1 <0.2.0-0 || >=0.2.0-rc.1 <0.2.3-0",
     "@deepseek-ai/schemastery": "^3.18.2"
   },
   "scripts": {
-    "prepare": "node scripts/prepare-github-install.mjs",
     "build": "pnpm -r build",
     "typecheck": "pnpm -r exec tsc -p tsconfig.json --noEmit",
     "test:preset": "node scripts/test-gen-preset.mjs",

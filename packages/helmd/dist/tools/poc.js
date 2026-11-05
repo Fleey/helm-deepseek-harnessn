@@ -1,0 +1,130 @@
+// T-15 PoC runner: positive + independent negative control, then a three-state
+// verdict. HTTP only; no arbitrary shell and no destructive request by default.
+import { defineTool } from '@deepseek-ai/dsh-tools';
+import { requestText } from '../net-fetch.js';
+import { getCase, saveEvidence } from '../case.js';
+import { ReconLimiter, checkReconTarget } from '../recon.js';
+import { classifyPoc, recipeById, renderPocRequest } from '../poc.js';
+import { loadSettings } from '../settings.js';
+import { pollOob, startOob, stopOob } from '../oob.js';
+const limiter = new ReconLimiter(1, 2);
+function withSuffix(url, suffix) {
+    if (suffix === undefined || suffix.trim() === '')
+        return url;
+    const value = suffix.trim();
+    if (value.startsWith('?') || value.startsWith('/'))
+        return url.replace(/\/$/, '') + value;
+    return url + value;
+}
+function parseHeaders(raw) {
+    if (raw === undefined || raw.trim() === '')
+        return undefined;
+    const parsed = JSON.parse(raw);
+    if (parsed === null || typeof parsed !== 'object' || Array.isArray(parsed))
+        throw new Error('headers must be a JSON object');
+    return Object.fromEntries(Object.entries(parsed).map(([key, value]) => [key, String(value)]));
+}
+async function send(url, request) {
+    await limiter.acquire(new URL(url).hostname);
+    try {
+        const response = await requestText(url, {
+            method: request.method,
+            headers: request.headers ?? {},
+            ...(request.body !== undefined ? { body: request.body } : {}),
+        });
+        return { status: response.status, text: response.text.slice(0, 256 * 1024) };
+    }
+    finally {
+        limiter.release();
+    }
+}
+export function registerPocTools(ctx) {
+    ctx.tools.register(defineTool({
+        name: 'run_poc',
+        description: 'Run a deterministic PoC recipe against one in-scope URL: positive request + independent negative control, ' +
+            'then verdict verified/refuted/inconclusive. Safe recipes only unless team.riskApproval=allow. ' +
+            'Both raw responses are saved as evidence; cite them in record_finding.',
+        parameters: {
+            recipe: { type: 'string', required: true, description: 'http-diff | sqli-boolean | path-traversal | idor | xss-canary | jwt-none | state-change' },
+            url: { type: 'string', required: true, description: 'In-scope target URL (scope from begin_case).' },
+            positive_suffix: { type: 'string', description: 'Query/path suffix for the positive request, e.g. ?id=1%27%20OR%201=1--' },
+            negative_suffix: { type: 'string', description: 'Independent benign suffix for the control request.' },
+            positive_headers: { type: 'string', description: 'JSON object of positive request headers.' },
+            negative_headers: { type: 'string', description: 'JSON object of negative request headers.' },
+            positive_body: { type: 'string', description: 'Positive request body.' },
+            negative_body: { type: 'string', description: 'Negative request body.' },
+            success_regex: { type: 'string', description: 'Override the recipe marker regex.' },
+            lab: { type: 'boolean', description: 'Allow private/loopback targets (authorized lab only).' },
+        },
+        output: { schema: { type: 'string' }, render: (_a, v) => [{ type: 'text', text: v }] },
+        async execute(args, exec) {
+            const active = getCase(exec?.agent?.id);
+            if (active === undefined)
+                throw new Error('no active case; begin_case(scope=[...]) first');
+            const recipe = recipeById(args.recipe);
+            if (recipe === undefined)
+                throw new Error(`unknown PoC recipe: ${args.recipe}`);
+            if (!recipe.safe && loadSettings().team.riskApproval !== 'allow') {
+                throw new Error(`recipe ${recipe.id} is state-changing; set team.riskApproval=allow or use a safe recipe`);
+            }
+            const url = args.url.trim();
+            const host = new URL(url).hostname;
+            const scope = checkReconTarget(host, active.scope ?? [], args.lab === true);
+            if (!scope.ok)
+                throw new Error(scope.reason ?? 'target rejected');
+            const marker = new RegExp(args.success_regex ?? recipe.successRegex, 'i');
+            const positiveRequest = renderPocRequest(recipe.positive, {
+                ...(args.positive_headers !== undefined ? { headers: parseHeaders(args.positive_headers) } : {}),
+                ...(args.positive_body !== undefined ? { body: args.positive_body } : {}),
+            });
+            const negativeRequest = renderPocRequest(recipe.negative, {
+                ...(args.negative_headers !== undefined ? { headers: parseHeaders(args.negative_headers) } : {}),
+                ...(args.negative_body !== undefined ? { body: args.negative_body } : {}),
+            });
+            const positive = await send(withSuffix(url, args.positive_suffix), positiveRequest);
+            const negative = await send(withSuffix(url, args.negative_suffix), negativeRequest);
+            const positiveHit = marker.test(positive.text);
+            const negativeHit = marker.test(negative.text);
+            const verdict = classifyPoc(positiveHit, negativeHit);
+            const positiveEvidence = await saveEvidence(active.dir, 'poc_positive', `${positive.status}\n${positive.text}`, `${recipe.id} positive`);
+            const negativeEvidence = await saveEvidence(active.dir, 'poc_negative', `${negative.status}\n${negative.text}`, `${recipe.id} negative`);
+            return [
+                `recipe: ${recipe.id} (${recipe.vulnClass})`,
+                `positive: HTTP ${positive.status} hit=${positiveHit} evidence=${positiveEvidence.id}`,
+                `negative: HTTP ${negative.status} hit=${negativeHit} evidence=${negativeEvidence.id}`,
+                `verdict: ${verdict.verdict} — ${verdict.reason}`,
+                `finding link: positive_evidence_ids=[${positiveEvidence.id}] negative_evidence_ids=[${negativeEvidence.id}]`,
+            ].join('\n');
+        },
+    }));
+    ctx.tools.register(defineTool({
+        name: 'oob_start',
+        description: 'Start a loopback-only OOB callback listener (lab use). Returns a one-time URL/token and expiry; no external service.',
+        parameters: { ttl_sec: { type: 'number', description: 'Listener lifetime seconds (default 300, max 900).' } },
+        output: { schema: { type: 'string' }, render: (_a, v) => [{ type: 'text', text: v }] },
+        async execute(args) {
+            const session = await startOob((args.ttl_sec ?? 300) * 1000);
+            return `oob session: ${session.id}\nurl: ${session.url}\nexpires: ${session.expiresAt}\nPlace this URL in the payload, then poll with oob_poll(id).`;
+        },
+    }));
+    ctx.tools.register(defineTool({
+        name: 'oob_poll',
+        description: 'Poll a loopback OOB session for callback hits; returns method/url/body/at.',
+        parameters: { id: { type: 'string', required: true, description: 'OOB session id from oob_start.' } },
+        output: { schema: { type: 'string' }, render: (_a, v) => [{ type: 'text', text: v }] },
+        async execute(args) {
+            const hits = pollOob(args.id);
+            return hits.length === 0 ? 'no OOB hits yet' : JSON.stringify(hits, null, 2);
+        },
+    }));
+    ctx.tools.register(defineTool({
+        name: 'oob_stop',
+        description: 'Stop a loopback OOB session and free its port.',
+        parameters: { id: { type: 'string', required: true, description: 'OOB session id.' } },
+        output: { schema: { type: 'string' }, render: (_a, v) => [{ type: 'text', text: v }] },
+        async execute(args) {
+            return stopOob(args.id) ? `stopped ${args.id}` : `unknown or expired ${args.id}`;
+        },
+    }));
+}
+//# sourceMappingURL=poc.js.map

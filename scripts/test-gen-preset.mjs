@@ -49,6 +49,11 @@ try {
   assert.match(generated, /^ {8}order: 10$/m, 'preset.yml order must migrate into the entry config')
   assert.match(generated, /^ {8}description: "helmd: /m, 'preset.yml description must migrate into the entry config')
   assert.match(generated, /^ {10}- id: helmd\n {12}name: '@adwmc\/helm-d\/agent'$/m, 'the agent row must sit at the plugins level')
+  // Both experimental Agent Teams rows stand down while the Host root already
+  // runs the same plugin (the official Agent Teams bundle); scripts/checks/
+  // team-rows.check.mjs evaluates the conditions the way the Loader does.
+  assert.match(generated, /^ {10}- id: tool-agent-team\n {12}name: '@deepseek-ai\/dsh-experimental-tool-agent-team'\n {12}disabled: !!js "[^"]*dsh-experimental-tool-agent-team[^"]*"$/m, 'the preset team tools row must stand down beside the host copy')
+  assert.match(generated, /^ {4}- id: helmd-agent-team\n {6}name: '@deepseek-ai\/dsh-experimental-agent-team'\n {6}disabled: !!js "[^"]*e\.options\?\.id !== 'helmd-agent-team'[^"]*"$/m, 'the team service row needs its own id and must stand down beside the host copy')
   assert.doesNotMatch(generated, /\{\{model\}\}|\{\{cwd\}\}/, 'host persona templates must not leak')
   assert.match(generated, /\n$/, 'the patch must end with a newline')
   // The agent row is the /agent subpath; the host row must be the BARE package name.

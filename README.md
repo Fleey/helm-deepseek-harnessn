@@ -2,7 +2,7 @@
 
 # helm-d
 
-<p align="center"><strong>Version 0.5.3-fork.3</strong></p>
+<p align="center"><strong>Version 0.5.3-fork.6</strong></p>
 
 **DeepSeek Harness 破甲安全分析插件**
 
@@ -368,7 +368,7 @@ dsh plugin --profile web add https://github.com/Fleey/helm-deepseek-harnessn/rel
 | 依赖 | peer 范围 | cohort |
 |------|----------|--------|
 | `@deepseek-ai/cordis` | `^4.0.2` | `4.0.4` |
-| `@deepseek-ai/dsh-tools` / `dsh-settings` | `>=0.1.5-rc.1 <0.2.0-0 \|\| >=0.2.0-rc.1 <0.2.2-0` | `0.2.1-rc.2` |
+| `@deepseek-ai/dsh-tools` / `dsh-settings` | `>=0.1.5-rc.1 <0.2.0-0 \|\| >=0.2.0-rc.1 <0.2.3-0` | `0.2.1-rc.2` |
 | `@deepseek-ai/schemastery` | `^3.18.2` | `3.18.4` |
 
 把 `vX.Y.Z` 换成目标 Release 的 tag；不要用 `releases/latest/download/*` 作为 profile 依赖。

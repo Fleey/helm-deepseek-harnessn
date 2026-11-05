@@ -4,15 +4,36 @@
 完整发布注记与资产见 [GitHub Releases](https://github.com/ADWMC/helm-d/releases)。
 官方QQ群：**213266664**
 
-## [0.5.3-fork.3] — 2026-11-05（fork：兼容 DSH 0.2.2-rc.1 — 放宽 peer 上限）
+## [0.5.3-fork.6] — 2026-11-05（fork：与官方 Agent Teams bundle 并存时不再重复安装团队工具）
 
 ### 修复
 
-- **宿主拒绝装载（版本冲突提示）**：DSH NEXT 2.0.21-next 搭载 DSH SDK `0.2.2-rc.1`，而 peerDependencies 上限 `<0.2.2-0` 正好把它拒之门外——桌面端弹「与当前 DSH 不兼容，请卸载后重新安装」。放宽为 `>=0.1.5-rc.1 <0.2.0-0 || >=0.2.0-rc.1 <0.3.0-0`（settings / tools 两条同改）
-- **兼容性核实**（0.2.1-rc.5 vs 0.2.2-rc.1 包级 diff）：`dsh-settings` 类型面零差异；`dsh-tools` 内部重组（`./types` 导出移除、新增 `./pipeline`），但 helmd 只用主入口 `register` / `schemas` / `defineTool`——0.2.2-rc.1 全部保留且签名一致；`schemastery` peer `^3.18.2` 本就覆盖宿主的 3.19.0
-- **对照验证**：以 0.2.2-rc.1 cohort（cordis 4.1.0 / schemastery 3.19.0 / dsh-* 0.2.2-rc.1）独立 checkout 实测 `tsc --noEmit` PASS、`pnpm build` PASS、`scripts/checks/run-all.mjs` 32/32 PASS
-- **github: 直装产物缺失**：本仓库是 monorepo（根 private:true，exports 指向 `packages/helmd/dist`），profile 依赖 `github:Fleey/helm-deepseek-harnessn` 时 dshmarket 把源码树原样拷进 node_modules——子包 stub 的 pkgRoot 处没有 `payload.dat`，agent 装载失败，工作台胶囊与会话 tab 消失；手工部署的密封包也会在宿主每次重装时被覆盖。修复：`scripts/prepare-github-install.mjs`（npm/pnpm 的 `prepare` 钩子自动调用，把已入库的密封产物铺到仓库根，零依赖）+ 根 `exports` 改指根 `dist`；宿主侧需允许 helmd 的 prepare 构建脚本（pnpm 11 `onlyBuiltDependencies` 或市场 approve-builds 流程）
-- **helmd→helmd 会话切换标签栏闪烁**：`conversation.view` 的全局注册随胶囊 mount/unmount 同步进出，切换瞬间 refcount 归零把 tab 拆掉、下一 commit 再注册回来。修复：释放延迟一个宏任务，新胶囊 acquire 取消挂起的 dispose，标签保持连续
+- **选中 helmd 会话时反复闪烁的真正原因**：helmd 生成的预设额外带了两行宿主实验性团队插件——预设内的 `tool-agent-team`（`@deepseek-ai/dsh-experimental-tool-agent-team`）和顶层的 `agent-team`（`@deepseek-ai/dsh-experimental-agent-team`）。profile 同时启用了官方的 Agent Teams bundle（`@deepseek-ai/dsh-experimental-agent-team-profile`）时，它会在宿主根树上再插入同样两行，团队工具因此对每个团队成员 agent 安装两次。第二次 `systemPrompt.section({ name: "team:policy" })` 抛出 `prompt section "team:policy" is already registered in this scope`，串行的 `agent/created` 分发失败，`dsh-agent-loop` 拆掉刚创建的 agent，客户端随即重开，形成每秒约 10 次的创建/销毁循环：会话从列表里消失又回来，标题退化成原始 id，标签行反复变化。该报错由宿主诊断日志在 `agents.announce` 处捕获，每一轮都相同
+- **修法**：两行改为在宿主根树已运行同一插件时自动停用（`disabled: !!js`，条件经 `ctx.get('loader').entries()` 读取根树；预设有自己的条目树，不在根树内，条件不会读到自身）。顶层服务行改用独立 id `helmd-agent-team`，避免和官方 bundle 的 `agent-team` 同 id（`insert` 不去重）；它的条件先排除自身 id 再读 `disabled`，不会递归。未启用官方 bundle 时，helmd 会话照旧带团队服务和团队工具
+- fork.5 的工作台标签持有 + 宽限期改动保留：它消除了循环里标签行的抖动，但不是循环的起点
+- **验证**：用宿主 0.2.2-rc.1 自带的 `entryListSchema` 解析快照，并用宿主 Loader 的 `evaluate` 求值两种情形（官方 bundle 开启 → 两行都停用；未开启或被禁用 → 两行都生效）；新增 `scripts/checks/team-rows.check.mjs`（main 上的快照全部失败，本版本全部通过），`scripts/test-gen-preset.mjs` 补充两行结构断言；`scripts/checks/run-all.mjs` 以 DSH NEXT 运行时跑在 0.2.2-rc.1 宿主包上 34/34 PASS（`ui-tokens` SKIP）。在 DSH NEXT 0.2.2-rc.1 实机上换入新快照后重启：两个 helmd 会话的 agent 各创建一次，没有 `announce` 失败、没有 `agent/disposed` 循环（换入前同一会话 10 秒内 20 次）
+
+## [0.5.3-fork.5] — 2026-11-05（fork：修复选中 helmd 会话时会话与标签反复闪烁）
+
+### 修复
+
+- **选中 helmd 会话后，会话、标题与标签行反复闪烁**：DSH 0.2.2 上会话的 agent 一被释放，宿主就会发出 `session/disposed` → `api-session/removed`，客户端把这个会话从列表移除，连同它的投影值一起，于是标题退化成原始 `session-…` id，工作台胶囊读到的 `agentPreset` 暂时变成 undefined。旧代码此时立即注销 `conversation.view` 里的 `helmd-workbench` 标签。宿主的标签注册表是全局的，任何改动都会让它对所有打开的会话重新选择视图（`restoreView`），视图一换，会话就被重新打开，`agentPreset` 回来，标签再次注册……形成每秒约 8 次的循环：每一轮都创建并销毁一次 agent，宿主日志里同一个会话 30 秒内出现 273 条 `agent/disposed listener threw`。现在由屏幕上每个 helmd 胶囊共同持有这个标签（引用计数），最后一个持有者释放后再等 1.5 秒宽限期才注销；会话短暂离开列表又回来时，标签行不变，循环随之消失。顺带解决两个 helmd 会话同时在屏幕上时重复注册同一个列表 id 的问题；插件卸载时立即注销，不等宽限期
+- **新增检查 `workbench-presence`**：用记录型 React、slot 注册表和手动时钟运行真实的 `packages/helmd/client.js`，覆盖五种情况：会话离开列表后返回、胶囊在宽限期内重挂载、宽限期过后注销、两个胶囊共用一个标签、插件卸载。旧代码五项全部失败，新代码全部通过
+
+## [0.5.3-fork.4] — 2026-11-05（fork：helmd 预设在 DSH 0.2.2 上可挂载）
+
+### 修复
+
+- **helmd 预设会话点开即消失**：0.2.2-rc.1 的宿主 standard 删掉了 `tool-subagent-list-agents` 行，`@deepseek-ai/dsh-tool-subagent-control` 不再导出 `./list-agents`，而随包快照 `preset.generated.patch.yml` 仍按 0.2.1 宿主（`host=20e4ddfb…`）生成。宿主加载该行报 `ERR_PACKAGE_PATH_NOT_EXPORTED`，`agent-preset-registry` 判定 `tool-subagent-list-agents … never started`，而 `mountPreset` 对任何失败行都会拒绝整个预设挂载，所以用 helmd 预设的会话一律起不来。快照（`packages/helmd` 与根 shim）按 0.2.2-rc.1 standard（`host=3006cc37…`）重新生成：去掉 `list-agents` 行，并同步宿主新增的 `applyPatch`、`modelSelection` / `modelDiscovery`、`profileContext` 条件。快照中 33 行有 1 行在 0.2.2-rc.1 宿主上解析不到 → 32 行全部可解析。顺带修正 fork.2 快照里 `tool-plugin-market` 行被截断成的 `disabled: tr`。快照仍只对应生成它的宿主版本，其他宿主上照旧靠安装/更新脚本或 `HELMD_AUTO_HEAL=1` 重新生成
+- **验证**：快照中每个模块行对照 0.2.2-rc.1 `app.asar` 内包的 `exports` 检查全部可解析；`gen-preset --check` 与 `sync-root-shim` 无漂移；`scripts/checks/run-all.mjs` 以 DSH NEXT 运行时跑在 0.2.2-rc.1 宿主包上 32/32 PASS（`ui-tokens` SKIP），含 `preset-heal` 与 `root-shim`
+- fork.3 发布时只带了放宽 peer 范围的提交，这条修复随 fork.4 发布；已装 fork.3 的 profile 更新到 fork.4 即可
+
+## [0.5.3-fork.3] — 2026-11-05（fork：放行 DSH 0.2.2 系列宿主）
+
+### 修复
+
+- **DSH 0.2.2-rc.1 上被拒装 / 拒载**：DSH NEXT 自动升级到 0.2.2-rc.1 后，根包与 10 个子包对 `@deepseek-ai/dsh-settings` / `@deepseek-ai/dsh-tools` 的 peer 上限 `<0.2.2-0` 不再满足。插件管理器在安装后会校验整个 profile，于是拒绝整次操作（报错落在当次被安装/更新的插件名下，并非 helmd 自己），宿主启动时也会拒载 helmd。peer 上限放宽为 `<0.2.3-0`，即 `>=0.1.5-rc.1 <0.2.0-0 || >=0.2.0-rc.1 <0.2.3-0`；编译期 cohort 仍为 `0.2.1-rc.2`
+- **兼容性核对**：helmd 运行期只从 `dsh-tools` 取 `defineTool`，另用 `tools.register` / `tools.schemas` 与 `systemPrompt.section` / `context` / `getSectionOrder`。对照 0.2.1-rc.4 与 0.2.2-rc.1 宿主：`defineTool` 实现逐行一致，`tools.register` 仅新增可选 `options`，`tools.schemas` 仅新增可选 `toolSet`，`systemPrompt` 三个方法不变。`scripts/checks/run-all.mjs` 以 DSH NEXT 自带运行时（`ELECTRON_RUN_AS_NODE=1`，Node 24.21.0）跑在 0.2.2-rc.1 宿主包上 32/32 PASS（`ui-tokens` 因本机无 web 前端资源 SKIP）
 
 ## [0.5.3-fork.2] — 2026-11-05（fork：修复工作台胶囊条件 Hook 崩溃 — 会话内容区空白）
 
