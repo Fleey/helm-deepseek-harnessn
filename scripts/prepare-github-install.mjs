@@ -11,9 +11,18 @@
 //   payload.dat / references.dat  (sealed blobs; stubs resolve pkgRoot =
 //                                  dirname(dirname(dist/health.js)) = repo root)
 //   presets/preset.yml + profiles.dat
-//   cordis.patch.yml / preset.generated.patch.yml (root copies already exist;
-//                                  refreshed from the subpackage when present)
 //   dist/health.js|index.js       (sealed entry stubs)
+//
+// The root shim files — cordis.patch.yml, preset.generated.patch.yml and
+// client.js — are NOT copied. They are committed at the root by
+// scripts/sync-root-shim.mjs and differ from the subpackage's on purpose: a
+// git install mounts this package as `helmd`, so every row there names
+// `helmd` / `helmd/agent` instead of `@adwmc/helm-d` / `@adwmc/helm-d/agent`.
+// Copying the subpackage's preset over the root one (fork.7) put
+// `@adwmc/helm-d/agent` back; the host could not resolve it
+// (ERR_MODULE_NOT_FOUND), the `helmd` row never started, the preset mount
+// was rejected and every helmd session vanished on open. The root-shim check
+// keeps the committed root copies in step with the subpackage.
 //
 // No build step: every copied file is committed to the repo by scripts/repack
 // (build-sealed writes them into packages/helmd before commit). Zero deps —
@@ -44,7 +53,6 @@ copy('payload.dat')
 copy('references.dat')
 copy('presets/preset.yml')
 copy('presets/profiles.dat')
-copy('preset.generated.patch.yml')
 copy('dist/health.js')
 copy('dist/health.d.ts')
 copy('dist/index.js')

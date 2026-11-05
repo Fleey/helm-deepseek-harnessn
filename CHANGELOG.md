@@ -4,6 +4,18 @@
 完整发布注记与资产见 [GitHub Releases](https://github.com/ADWMC/helm-d/releases)。
 官方QQ群：**213266664**
 
+## [0.5.3-fork.8] — 2026-11-05（fork：github: 直装后 helmd 会话不再一打开就消失）
+
+### 修复
+
+- **github: 直装后打开 helmd 会话时对话框消失**：fork.7 新增的 `scripts/prepare-github-install.mjs` 会在安装时执行 `copy('preset.generated.patch.yml')`，把子包的预设快照原样复制到仓库根，覆盖掉 `scripts/sync-root-shim.mjs` 维护的根 shim 版本。两份快照只有包名不同：根版本的 agent 行写 `helmd/agent`（git 安装以 `helmd` 这个名字挂载本包），子包版本写 `@adwmc/helm-d/agent`。覆盖之后，宿主解析 `@adwmc/helm-d` 时报 `ERR_MODULE_NOT_FOUND: Cannot find package '@adwmc/helm-d'`，`agent preset helmd: helmd (@adwmc/helm-d/agent): never started`，`mountPreset` 因此拒绝挂载整个预设，用 helmd 预设的会话一律起不来。现在 `prepare` 不再复制根 shim 维护的三个文件（`cordis.patch.yml`、`preset.generated.patch.yml`、`client.js`），只铺密封产物；根版本照旧由提交时的 `sync-root-shim` 生成，并由 `root-shim` 检查保证与子包同步
+- **新增检查 `prepare-install`**：在临时目录里搭出安装树并真正运行 `prepare-github-install.mjs`，断言三个根 shim 文件逐字节不变、根预设仍写 `helmd/agent` 且不含 `@adwmc/helm-d`、每个密封产物都铺到了根目录且与子包一致。fork.7 的脚本在前两项上失败，本版本全部通过
+- 已装 fork.7 的 profile 需要更新到 fork.8；在此之前，也可以把仓库根目录的 `preset.generated.patch.yml` 手动拷回安装目录的根目录
+
+### 版本
+
+- `0.5.3-fork.7` → `0.5.3-fork.8`（根 + packages/helmd + README）
+
 ## [0.5.3-fork.7] — 2026-11-05（fork：合并 fork.6 线 + github: 直装修复 + 关于页文案对齐）
 
 将 `sync-upstream-0.5.3` 分支（fork.3：peer 放宽 / 标签延迟释放 / 关于页文案）与 `main` 分支（fork.4/5/6：0.2.2 预设快照重生成 / 标签持有+宽限 / Team 工具双安装修复）合流，双线检查集（34 项）全绿。
