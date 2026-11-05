@@ -42,9 +42,9 @@ const report = createReporter('profile-switch')
 const PERSONA = 'helm-d:persona'
 const statePath = join(home, 'storages', 'helmd', 'profile.json')
 
-await report.check('the sealed catalog carries the core profile and both mode overlays', () => {
+await report.check('the sealed catalog carries the core profile, both mode overlays, and the upstream profiles', () => {
   const ids = profile.profileStatus().profiles.map((p) => p.id)
-  assert.deepEqual(ids.sort(), ['core', 'redteam-max', 'stealth'])
+  assert.deepEqual(ids.sort(), ['core', 'ds4.1f', 'gpt-6x', 'redteam-max', 'stealth'])
 })
 
 await report.check('mode overlays extend the full core body instead of replacing it', () => {
@@ -56,6 +56,11 @@ await report.check('mode overlays extend the full core body instead of replacing
   }
   assert.ok(catalog.profileBody('stealth').includes('MODE OVERLAY — STEALTH'))
   assert.ok(catalog.profileBody('redteam-max').includes('MODE OVERLAY — REDTEAM MAX'))
+  // ds4.1f extends core (same body as the upstream main profile); gpt-6x is a
+  // standalone persona with its own activation word.
+  assert.ok(catalog.profileBody('ds4.1f').startsWith(core.trimEnd()))
+  assert.ok(catalog.profileBody('ds4.1f').includes('IDENTITY ALIAS — ds4.1f'))
+  assert.ok(catalog.profileBody('gpt-6x').includes('helm-x online'))
 })
 
 await report.check('installPersona registers the catalog default', () => {

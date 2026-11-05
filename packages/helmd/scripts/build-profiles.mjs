@@ -20,7 +20,7 @@ const outPath = join(pkg, 'presets', 'profiles.dat')
 
 const { seal } = await import(pathToFileURL(join(pkg, 'dist', 'crypt.js')).href)
 
-const NAMES = { core: '全能主档（v10 全量）', stealth: '轻量隐匿版', 'redteam-max': '渗透加厚版' }
+const NAMES = { core: '全能主档（v10 全量）', stealth: '轻量隐匿版', 'redteam-max': '渗透加厚版', 'ds4.1f': '上游主档（同 core）', 'gpt-6x': '上游红队档（CTF 沙盒）' }
 
 const files = readdirSync(profilesDir).filter((f) => f.endsWith('.md'))
 if (files.length === 0) throw new Error(`no profiles found in ${profilesDir}`)

@@ -4,6 +4,20 @@
 完整发布注记与资产见 [GitHub Releases](https://github.com/ADWMC/helm-d/releases)。
 官方QQ群：**213266664**
 
+## [0.5.3-fork.8] — 2026-11-05（fork：引入上游 ds4.1f / gpt-6x 两档 — 破甲档位扩至五档）
+
+### 变更
+
+- **引入上游 v0.5.3 的两个档位**（fork.1 的「不引入」裁决按用户要求解除）：
+  - `ds4.1f`：上游主档命名。其正文与 fork `core` 逐字节一致（上游 0.5.3 只是改名），故以 `extends: core` overlay 实现——切换到本档等价于 `core` 主档，仅保留上游 id 命名，便于沿用上游档位工作流
+  - `gpt-6x`：上游第四档，独立完整人格（CTF 空隔沙盒竞赛代理：双账本计分制交付、四角色完成契约、fixture-slot 槽位语义），激活词 `helmx`，与主档 `helmd` 互不干扰，照搬上游原文
+- **档位集合**：`core` / `stealth` / `redteam-max` / `ds4.1f` / `gpt-6x`，热切换机制不变（`GET/POST /api/helmd/profile`，`switchProfile` 原地换注册，下一会话生效）
+- **配套**：`build-profiles.mjs` NAMES 补两档中文名；`client.js` PROFILE_META 补 tag/desc；关于页文案改为五档；`profile-switch.check.mjs` 断言扩至五档并新增 ds4.1f 组合、gpt-6x 激活行检查
+
+### 验证
+
+- `scripts/checks/run-all.mjs`：34/34 PASS（profile-switch 五档断言 + ds4.1f startsWith core + gpt-6x 激活行）
+
 ## [0.5.3-fork.7] — 2026-11-05（fork：合并 fork.6 线 + github: 直装修复 + 关于页文案对齐）
 
 将 `sync-upstream-0.5.3` 分支（fork.3：peer 放宽 / 标签延迟释放 / 关于页文案）与 `main` 分支（fork.4/5/6：0.2.2 预设快照重生成 / 标签持有+宽限 / Team 工具双安装修复）合流，双线检查集（34 项）全绿。
