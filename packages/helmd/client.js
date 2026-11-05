@@ -164,6 +164,35 @@ exports.apply = function apply(ctx) {
 		inject: (sessionId) => ({ sessionId: sessionId }),
 	};
 
+	// Process-wide refcount for the global conversation.view registration.
+	// acquireWorkbenchViewRegistration() returns a release callback; the slot
+	// stays registered while at least one helmd capsule holds a claim.
+	let workbenchViewRefCount = 0;
+	let workbenchViewDispose = null;
+	function acquireWorkbenchViewRegistration() {
+		workbenchViewRefCount += 1;
+		if (workbenchViewRefCount === 1) {
+			try {
+				workbenchViewDispose = ctx.slots.inject("conversation.view", function* () {
+					yield ctx.slots.register(WORKBENCH_VIEW_OPTIONS, HelmdWorkbenchView);
+				});
+			} catch (err) {
+				workbenchViewDispose = null;
+			}
+		}
+		let released = false;
+		return function releaseWorkbenchViewRegistration() {
+			if (released) return;
+			released = true;
+			workbenchViewRefCount = Math.max(0, workbenchViewRefCount - 1);
+			if (workbenchViewRefCount === 0 && typeof workbenchViewDispose === "function") {
+				const dispose = workbenchViewDispose;
+				workbenchViewDispose = null;
+				try { dispose(); } catch (err) {}
+			}
+		};
+	}
+
 	// Per-tab error isolation: one tab's render error must not blank out the
 	// whole workbench panel (that was the Intercept Log whiteout). (fork)
 	class TabErrorBoundary extends React.Component {
@@ -222,19 +251,19 @@ exports.apply = function apply(ctx) {
 		// The session tab (对话/轨迹/helmd) exists only while THIS session runs
 		// the helmd preset: register the conversation.view entry on mount and
 		// dispose it on unmount / preset change. (fork)
+		//
+		// The view entry is GLOBAL (one slot, fixed id "helmd-workbench"), but
+		// every mounted helmd capsule runs this effect — the host throws on a
+		// duplicate list-slot id and, worse, one capsule's cleanup disposed the
+		// registration another capsule still owned, so with two+ helmd sessions
+		// alive the tab bar flip-flopped between registered/unregistered
+		// (observed as the whole UI flashing). Reference-count the registration
+		// process-wide: the first mount owns the slot, the last unmount releases
+		// it. (fork fix, 2026-11-05)
 		React.useEffect(() => {
 			if (preset !== "helmd") return undefined;
-			let dispose = null;
-			try {
-				dispose = ctx.slots.inject("conversation.view", function* () {
-					yield ctx.slots.register(WORKBENCH_VIEW_OPTIONS, HelmdWorkbenchView);
-				});
-			} catch (err) {}
-			return () => {
-				if (typeof dispose === "function") {
-					try { dispose(); } catch (err) {}
-				}
-			};
+			const release = acquireWorkbenchViewRegistration();
+			return () => { release(); };
 		}, [preset]);
 
 		// Dismiss on outside click or Escape key
