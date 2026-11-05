@@ -1674,9 +1674,9 @@ exports.apply = function apply(ctx) {
 			color: "var(--dsw-alias-label-secondary)", overflowX: "auto",
 		};
 		var fallbackChanges = [
-			"破甲档位热切换：ds4.1f / stealth / redteam-max / gpt-6x，下一次模型调用生效",
-			"工作台改为破甲 / Case / 拦截 / 关于，对齐 DSH 原生样式",
-			"工具数 33；移除 find_tool 与静态工具目录",
+			"破甲档位热切换：core / stealth / redteam-max，下一次模型调用生效（fork 不引入上游的 ds4.1f / gpt-6x）",
+			"工作台改为破甲 / Case / Team / 工具 / 拦截 / 设置 / 关于，对齐 DSH 原生样式",
+			"工具数 49；移除 find_tool 与静态工具目录",
 			"星标浮层迁入 shell.overlay，不再写 document.body",
 		];
 		var changes = result && Array.isArray(result.releaseNotes) && result.releaseNotes.length > 0
