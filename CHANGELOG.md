@@ -4,6 +4,14 @@
 完整发布注记与资产见 [GitHub Releases](https://github.com/ADWMC/helm-d/releases)。
 官方QQ群：**213266664**
 
+## [0.5.3-fork.9] — 2026-11-05（fork：修复根预设 shim 被密封同步覆盖 — github: 直装后 helmd 会话打不开）
+
+### 修复
+
+- **根预设 shim 被覆盖（PR #10 的诊断，吸收进零构建架构）**：`sync-root-seal.mjs`（原 prepare-github-install）把子包的 `preset.generated.patch.yml` 原样复制到仓库根，覆盖了 `sync-root-shim.mjs` 维护的根版本。两份快照只有 agent 行包名不同：根版本写 `helmd/agent`（git 安装以 `helmd` 名挂载本包），子包版本写 `@adwmc/helm-d/agent`。被覆盖后 profile 找不到 `@adwmc/helm-d`，`mountPreset` 对任何失败行拒绝整个预设挂载——**每个 helmd 会话都打不开**（宿主日志：`Cannot find package '@adwmc/helm-d'` / `helmd (@adwmc/helm-d/agent): never started`）
+- **修法**：`sync-root-seal` 不再复制三个 shim 维护的文件（`cordis.patch.yml` / `preset.generated.patch.yml` / `client.js`），只复制密封产物；根版本照旧在提交时由 `sync-root-shim` 生成，`root-shim` 检查保证同步
+- **新增回归检查 `seal-install.check.mjs`**：临时目录搭安装树、真正运行 `sync-root-seal.mjs`，断言三个 shim 文件逐字节不变、根预设保留 `helmd/agent` 行且不含 `@adwmc/helm-d`、每个密封产物复制到根且与子包一致
+
 ## [0.5.3-fork.8] — 2026-11-05（fork：引入上游 ds4.1f / gpt-6x 两档 — 破甲档位扩至五档）
 
 ### 变更
