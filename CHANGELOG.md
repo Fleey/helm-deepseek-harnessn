@@ -4,6 +4,14 @@
 完整发布注记与资产见 [GitHub Releases](https://github.com/ADWMC/helm-d/releases)。
 官方QQ群：**213266664**
 
+## [0.5.3-fork.3] — 2026-11-05（fork：兼容 DSH 0.2.2-rc.1 — 放宽 peer 上限）
+
+### 修复
+
+- **宿主拒绝装载（版本冲突提示）**：DSH NEXT 2.0.21-next 搭载 DSH SDK `0.2.2-rc.1`，而 peerDependencies 上限 `<0.2.2-0` 正好把它拒之门外——桌面端弹「与当前 DSH 不兼容，请卸载后重新安装」。放宽为 `>=0.1.5-rc.1 <0.2.0-0 || >=0.2.0-rc.1 <0.3.0-0`（settings / tools 两条同改）
+- **兼容性核实**（0.2.1-rc.5 vs 0.2.2-rc.1 包级 diff）：`dsh-settings` 类型面零差异；`dsh-tools` 内部重组（`./types` 导出移除、新增 `./pipeline`），但 helmd 只用主入口 `register` / `schemas` / `defineTool`——0.2.2-rc.1 全部保留且签名一致；`schemastery` peer `^3.18.2` 本就覆盖宿主的 3.19.0
+- **对照验证**：以 0.2.2-rc.1 cohort（cordis 4.1.0 / schemastery 3.19.0 / dsh-* 0.2.2-rc.1）独立 checkout 实测 `tsc --noEmit` PASS、`pnpm build` PASS、`scripts/checks/run-all.mjs` 32/32 PASS
+
 ## [0.5.3-fork.2] — 2026-11-05（fork：修复工作台胶囊条件 Hook 崩溃 — 会话内容区空白）
 
 ### 修复

@@ -2,7 +2,7 @@
 
 # helm-d
 
-<p align="center"><strong>Version 0.5.3-fork.2</strong></p>
+<p align="center"><strong>Version 0.5.3-fork.3</strong></p>
 
 **DeepSeek Harness 破甲安全分析插件**
 
