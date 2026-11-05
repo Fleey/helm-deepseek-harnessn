@@ -4,13 +4,20 @@
 完整发布注记与资产见 [GitHub Releases](https://github.com/ADWMC/helm-d/releases)。
 官方QQ群：**213266664**
 
+## [0.5.3-fork.4] — 2026-11-05（fork：helmd 预设在 DSH 0.2.2 上可挂载）
+
+### 修复
+
+- **helmd 预设会话点开即消失**：0.2.2-rc.1 的宿主 standard 删掉了 `tool-subagent-list-agents` 行，`@deepseek-ai/dsh-tool-subagent-control` 不再导出 `./list-agents`，而随包快照 `preset.generated.patch.yml` 仍按 0.2.1 宿主（`host=20e4ddfb…`）生成。宿主加载该行报 `ERR_PACKAGE_PATH_NOT_EXPORTED`，`agent-preset-registry` 判定 `tool-subagent-list-agents … never started`，而 `mountPreset` 对任何失败行都会拒绝整个预设挂载，所以用 helmd 预设的会话一律起不来。快照（`packages/helmd` 与根 shim）按 0.2.2-rc.1 standard（`host=3006cc37…`）重新生成：去掉 `list-agents` 行，并同步宿主新增的 `applyPatch`、`modelSelection` / `modelDiscovery`、`profileContext` 条件。快照中 33 行有 1 行在 0.2.2-rc.1 宿主上解析不到 → 32 行全部可解析。顺带修正 fork.2 快照里 `tool-plugin-market` 行被截断成的 `disabled: tr`。快照仍只对应生成它的宿主版本，其他宿主上照旧靠安装/更新脚本或 `HELMD_AUTO_HEAL=1` 重新生成
+- **验证**：快照中每个模块行对照 0.2.2-rc.1 `app.asar` 内包的 `exports` 检查全部可解析；`gen-preset --check` 与 `sync-root-shim` 无漂移；`scripts/checks/run-all.mjs` 以 DSH NEXT 运行时跑在 0.2.2-rc.1 宿主包上 32/32 PASS（`ui-tokens` SKIP），含 `preset-heal` 与 `root-shim`
+- fork.3 发布时只带了放宽 peer 范围的提交，这条修复随 fork.4 发布；已装 fork.3 的 profile 更新到 fork.4 即可
+
 ## [0.5.3-fork.3] — 2026-11-05（fork：放行 DSH 0.2.2 系列宿主）
 
 ### 修复
 
 - **DSH 0.2.2-rc.1 上被拒装 / 拒载**：DSH NEXT 自动升级到 0.2.2-rc.1 后，根包与 10 个子包对 `@deepseek-ai/dsh-settings` / `@deepseek-ai/dsh-tools` 的 peer 上限 `<0.2.2-0` 不再满足。插件管理器在安装后会校验整个 profile，于是拒绝整次操作（报错落在当次被安装/更新的插件名下，并非 helmd 自己），宿主启动时也会拒载 helmd。peer 上限放宽为 `<0.2.3-0`，即 `>=0.1.5-rc.1 <0.2.0-0 || >=0.2.0-rc.1 <0.2.3-0`；编译期 cohort 仍为 `0.2.1-rc.2`
-- **helmd 预设会话点开即消失**：0.2.2-rc.1 的宿主 standard 删掉了 `tool-subagent-list-agents` 行，`@deepseek-ai/dsh-tool-subagent-control` 不再导出 `./list-agents`，而随包快照 `preset.generated.patch.yml` 仍按 0.2.1 宿主（`host=20e4ddfb…`）生成。宿主加载该行报 `ERR_PACKAGE_PATH_NOT_EXPORTED`，`agent-preset-registry` 判定 `tool-subagent-list-agents … never started`，而 `mountPreset` 对任何失败行都会拒绝整个预设挂载，所以用 helmd 预设的会话一律起不来。快照（`packages/helmd` 与根 shim）按 0.2.2-rc.1 standard（`host=3006cc37…`）重新生成：去掉 `list-agents` 行，并同步宿主新增的 `applyPatch`、`modelSelection` / `modelDiscovery`、`profileContext` 条件。快照中 33 行有 1 行在 0.2.2-rc.1 宿主上解析不到 → 32 行全部可解析。顺带修正 fork.2 快照里 `tool-plugin-market` 行被截断成的 `disabled: tr`。快照仍只对应生成它的宿主版本，其他宿主上照旧靠安装/更新脚本或 `HELMD_AUTO_HEAL=1` 重新生成
-- **兼容性核对**：helmd 运行期只从 `dsh-tools` 取 `defineTool`，另用 `tools.register` / `tools.schemas` 与 `systemPrompt.section` / `context` / `getSectionOrder`。对照 0.2.1-rc.4 与 0.2.2-rc.1 宿主：`defineTool` 实现逐行一致，`tools.register` 仅新增可选 `options`，`tools.schemas` 仅新增可选 `toolSet`，`systemPrompt` 三个方法不变。`scripts/checks/run-all.mjs` 以 DSH NEXT 自带运行时（`ELECTRON_RUN_AS_NODE=1`，Node 24.21.0）跑在 0.2.2-rc.1 宿主包上 32/32 PASS（`ui-tokens` 因本机无 web 前端资源 SKIP；含快照重新生成后的 `preset-heal` 与 `root-shim`）
+- **兼容性核对**：helmd 运行期只从 `dsh-tools` 取 `defineTool`，另用 `tools.register` / `tools.schemas` 与 `systemPrompt.section` / `context` / `getSectionOrder`。对照 0.2.1-rc.4 与 0.2.2-rc.1 宿主：`defineTool` 实现逐行一致，`tools.register` 仅新增可选 `options`，`tools.schemas` 仅新增可选 `toolSet`，`systemPrompt` 三个方法不变。`scripts/checks/run-all.mjs` 以 DSH NEXT 自带运行时（`ELECTRON_RUN_AS_NODE=1`，Node 24.21.0）跑在 0.2.2-rc.1 宿主包上 32/32 PASS（`ui-tokens` 因本机无 web 前端资源 SKIP）
 
 ## [0.5.3-fork.2] — 2026-11-05（fork：修复工作台胶囊条件 Hook 崩溃 — 会话内容区空白）
 
