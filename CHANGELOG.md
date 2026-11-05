@@ -4,6 +4,19 @@
 完整发布注记与资产见 [GitHub Releases](https://github.com/ADWMC/helm-d/releases)。
 官方QQ群：**213266664**
 
+## [0.5.3-fork.10] — 2026-11-05（fork：启动自愈不再把根预设改回子包名 — helmd 会话打开即消失第三次复发）
+
+### 修复
+
+- **启动时的预设自愈把根预设改坏**：fork.7 起宿主面入口 `dist/health.js` 从 `packages/helmd/dist` 移到了仓库根，`presetPatchPath()`（`../preset.generated.patch.yml`）指向的也从子包快照变成了根 shim 快照。可结构断言 `assertPresetArtifact` 仍要求 `@adwmc/helm-d` 恰好出现一次，于是正确的根预设（agent 行写 `helmd/agent`）每次启动都被判成 `STALE`；默认的 `auto` 策略随即调用 `gen-preset --out <根预设>` 重写，生成结果写回 `@adwmc/helm-d/agent`，并把正确版本留成 `.bak`。随后宿主报 `ERR_MODULE_NOT_FOUND: Cannot find package '@adwmc/helm-d'`、`agent preset helmd: helmd (@adwmc/helm-d/agent): never started`，`mountPreset` 拒绝整个预设，helmd 会话一打开就消失。fork.9 只修了同步脚本，这条运行时路径仍会在每次启动时复现
+- **修法**：`health.ts` 读取模块旁边 `package.json` 的包名（仓库根是 `helmd`，子包是 `@adwmc/helm-d`）。结构断言改为要求 `name: '<包名>/agent'` 恰好出现一次；当包名不是 `@adwmc/helm-d` 时，快照里出现 `@adwmc/helm-d` 也判为不合格，因为这个包在此处无法加载。自愈在 `gen-preset` 写完后，做与 `sync-root-shim` 相同的改名。`assertPresetArtifact` 新增可选的第三个参数 `packageName`，默认 `@adwmc/helm-d`，子包行为不变
+- **新增检查 `root-heal`**：在临时目录里搭出仓库根式安装（包名 `helmd`，入口在根目录 `dist/`），在新进程里运行构建出的 `evaluateHealth()`，覆盖三种情况：正确的根预设判为 OK 且原样不动；漂移的根预设被修复为 `helmd/agent`；写成子包名的根预设会被修正。main 上的代码三项全部失败，第一项报的正是“启动时改写了正确的根预设”
+- 重新封印 `payload.dat`（`build-sealed` + `sync-root-seal`）；`references.dat` 与 `profiles.dat` 内容不变，未重新提交
+
+### 版本
+
+- `0.5.3-fork.9` → `0.5.3-fork.10`（根 + packages/helmd + README）
+
 ## [0.5.3-fork.9] — 2026-11-05（fork：修复根预设 shim 被密封同步覆盖 — github: 直装后 helmd 会话打不开）
 
 ### 修复
