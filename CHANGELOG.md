@@ -4,6 +4,13 @@
 完整发布注记与资产见 [GitHub Releases](https://github.com/ADWMC/helm-d/releases)。
 官方QQ群：**213266664**
 
+## [0.5.3-fork.5] — 2026-11-05（fork：修复选中 helmd 会话时会话与标签反复闪烁）
+
+### 修复
+
+- **选中 helmd 会话后，会话、标题与标签行反复闪烁**：DSH 0.2.2 上会话的 agent 一被释放，宿主就会发出 `session/disposed` → `api-session/removed`，客户端把这个会话从列表移除，连同它的投影值一起，于是标题退化成原始 `session-…` id，工作台胶囊读到的 `agentPreset` 暂时变成 undefined。旧代码此时立即注销 `conversation.view` 里的 `helmd-workbench` 标签。宿主的标签注册表是全局的，任何改动都会让它对所有打开的会话重新选择视图（`restoreView`），视图一换，会话就被重新打开，`agentPreset` 回来，标签再次注册……形成每秒约 8 次的循环：每一轮都创建并销毁一次 agent，宿主日志里同一个会话 30 秒内出现 273 条 `agent/disposed listener threw`。现在由屏幕上每个 helmd 胶囊共同持有这个标签（引用计数），最后一个持有者释放后再等 1.5 秒宽限期才注销；会话短暂离开列表又回来时，标签行不变，循环随之消失。顺带解决两个 helmd 会话同时在屏幕上时重复注册同一个列表 id 的问题；插件卸载时立即注销，不等宽限期
+- **新增检查 `workbench-presence`**：用记录型 React、slot 注册表和手动时钟运行真实的 `packages/helmd/client.js`，覆盖五种情况：会话离开列表后返回、胶囊在宽限期内重挂载、宽限期过后注销、两个胶囊共用一个标签、插件卸载。旧代码五项全部失败，新代码全部通过
+
 ## [0.5.3-fork.4] — 2026-11-05（fork：helmd 预设在 DSH 0.2.2 上可挂载）
 
 ### 修复

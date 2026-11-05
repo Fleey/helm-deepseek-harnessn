@@ -1,6 +1,6 @@
 {
   "name": "@adwmc/helm-d",
-  "version": "0.5.3-fork.4",
+  "version": "0.5.3-fork.5",
   "type": "module",
   "main": "dist/health.js",
   "types": "dist/health.d.ts",
