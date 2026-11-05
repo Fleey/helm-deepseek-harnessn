@@ -167,11 +167,24 @@ exports.apply = function apply(ctx) {
 	// Process-wide refcount for the global conversation.view registration.
 	// acquireWorkbenchViewRegistration() returns a release callback; the slot
 	// stays registered while at least one helmd capsule holds a claim.
+	//
+	// Release is DEFERRED by one macrotask: switching between two helmd
+	// sessions unmounts the old capsule and mounts the new one in separate
+	// React commits, so a synchronous refcount hits 0 in between and the tab
+	// is torn down only to be re-registered a tick later — the session
+	// tab bar visibly flickers on every helmd→helmd switch. Deferring the
+	// dispose past the mount of the next capsule keeps the tab continuous;
+	// if no new claim arrives, the timer simply fires and cleans up.
 	let workbenchViewRefCount = 0;
 	let workbenchViewDispose = null;
+	let workbenchViewReleaseTimer = null;
 	function acquireWorkbenchViewRegistration() {
 		workbenchViewRefCount += 1;
-		if (workbenchViewRefCount === 1) {
+		if (workbenchViewReleaseTimer !== null) {
+			clearTimeout(workbenchViewReleaseTimer);
+			workbenchViewReleaseTimer = null;
+		}
+		if (workbenchViewRefCount === 1 && workbenchViewDispose === null) {
 			try {
 				workbenchViewDispose = ctx.slots.inject("conversation.view", function* () {
 					yield ctx.slots.register(WORKBENCH_VIEW_OPTIONS, HelmdWorkbenchView);
@@ -185,11 +198,15 @@ exports.apply = function apply(ctx) {
 			if (released) return;
 			released = true;
 			workbenchViewRefCount = Math.max(0, workbenchViewRefCount - 1);
-			if (workbenchViewRefCount === 0 && typeof workbenchViewDispose === "function") {
-				const dispose = workbenchViewDispose;
-				workbenchViewDispose = null;
-				try { dispose(); } catch (err) {}
-			}
+			if (workbenchViewRefCount > 0 || workbenchViewReleaseTimer !== null) return;
+			workbenchViewReleaseTimer = setTimeout(() => {
+				workbenchViewReleaseTimer = null;
+				if (workbenchViewRefCount === 0 && typeof workbenchViewDispose === "function") {
+					const dispose = workbenchViewDispose;
+					workbenchViewDispose = null;
+					try { dispose(); } catch (err) {}
+				}
+			}, 0);
 		};
 	}
 
