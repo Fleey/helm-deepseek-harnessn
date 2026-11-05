@@ -485,6 +485,8 @@ exports.apply = function apply(ctx) {
 		core: { tag: "全量主档", desc: "全部域规则 · 完整破甲 · 默认档" },
 		stealth: { tag: "轻量隐匿", desc: "最小输出 · 只读优先 · 单目标收敛" },
 		"redteam-max": { tag: "渗透加厚", desc: "全链路攻击 · 攻防双栏 · 产物成套" },
+		"ds4.1f": { tag: "上游主档", desc: "上游 v0.5.3 主档命名 · 正文同 core（fork.7 引入）" },
+		"gpt-6x": { tag: "上游红队档", desc: "CTF 沙盒竞赛人格 · 计分制交付 · 独立完整主档" },
 	};
 
 	const WORKBENCH_CSS = [
@@ -1691,7 +1693,7 @@ exports.apply = function apply(ctx) {
 			color: "var(--dsw-alias-label-secondary)", overflowX: "auto",
 		};
 		var fallbackChanges = [
-			"破甲档位热切换：core / stealth / redteam-max，下一次模型调用生效（fork 不引入上游的 ds4.1f / gpt-6x）",
+			"破甲档位热切换：core / stealth / redteam-max / ds4.1f / gpt-6x，下一次模型调用生效",
 			"工作台改为破甲 / Case / Team / 工具 / 拦截 / 设置 / 关于，对齐 DSH 原生样式",
 			"工具数 49；移除 find_tool 与静态工具目录",
 			"星标浮层迁入 shell.overlay，不再写 document.body",
