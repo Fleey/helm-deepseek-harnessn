@@ -11,6 +11,8 @@
 - **宿主拒绝装载（版本冲突提示）**：DSH NEXT 2.0.21-next 搭载 DSH SDK `0.2.2-rc.1`，而 peerDependencies 上限 `<0.2.2-0` 正好把它拒之门外——桌面端弹「与当前 DSH 不兼容，请卸载后重新安装」。放宽为 `>=0.1.5-rc.1 <0.2.0-0 || >=0.2.0-rc.1 <0.3.0-0`（settings / tools 两条同改）
 - **兼容性核实**（0.2.1-rc.5 vs 0.2.2-rc.1 包级 diff）：`dsh-settings` 类型面零差异；`dsh-tools` 内部重组（`./types` 导出移除、新增 `./pipeline`），但 helmd 只用主入口 `register` / `schemas` / `defineTool`——0.2.2-rc.1 全部保留且签名一致；`schemastery` peer `^3.18.2` 本就覆盖宿主的 3.19.0
 - **对照验证**：以 0.2.2-rc.1 cohort（cordis 4.1.0 / schemastery 3.19.0 / dsh-* 0.2.2-rc.1）独立 checkout 实测 `tsc --noEmit` PASS、`pnpm build` PASS、`scripts/checks/run-all.mjs` 32/32 PASS
+- **github: 直装产物缺失**：本仓库是 monorepo（根 private:true，exports 指向 `packages/helmd/dist`），profile 依赖 `github:Fleey/helm-deepseek-harnessn` 时 dshmarket 把源码树原样拷进 node_modules——子包 stub 的 pkgRoot 处没有 `payload.dat`，agent 装载失败，工作台胶囊与会话 tab 消失；手工部署的密封包也会在宿主每次重装时被覆盖。修复：`scripts/prepare-github-install.mjs`（npm/pnpm 的 `prepare` 钩子自动调用，把已入库的密封产物铺到仓库根，零依赖）+ 根 `exports` 改指根 `dist`；宿主侧需允许 helmd 的 prepare 构建脚本（pnpm 11 `onlyBuiltDependencies` 或市场 approve-builds 流程）
+- **helmd→helmd 会话切换标签栏闪烁**：`conversation.view` 的全局注册随胶囊 mount/unmount 同步进出，切换瞬间 refcount 归零把 tab 拆掉、下一 commit 再注册回来。修复：释放延迟一个宏任务，新胶囊 acquire 取消挂起的 dispose，标签保持连续
 
 ## [0.5.3-fork.2] — 2026-11-05（fork：修复工作台胶囊条件 Hook 崩溃 — 会话内容区空白）
 
