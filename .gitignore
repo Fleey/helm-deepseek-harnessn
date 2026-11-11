@@ -41,3 +41,18 @@ provider-probe.json
 package/
 
 .real/
+
+# build-sealed 自解压泄漏：payload.dat 首次 import 时把 scripts/** 提取到
+# 真实包路径（packages/helmd/scripts/…），根目录 scripts/ 下的同名副本是
+# 早期本机运行的泄漏产物，不属于仓库内容（已跟踪的 15 个维护脚本除外）。
+scripts/ai-security/
+scripts/android/
+scripts/build-profiles.mjs
+scripts/build-sealed.mjs
+scripts/evidence/
+scripts/malware/
+scripts/native/
+scripts/protocol/
+scripts/setup-preset.ps1
+scripts/setup-preset.sh
+scripts/web/
