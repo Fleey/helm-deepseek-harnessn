@@ -112,6 +112,20 @@ export interface HelmdHealth {
     autoHeal: string;
 }
 /**
+ * Read one file out of an Electron `app.asar` without dependencies. Layout:
+ * a 4-byte LE length, a small pickled frame, the JSON filesystem map, then the
+ * file bytes at a 4-byte-aligned base; each entry's `offset` (string past 2 GiB
+ * archives) is relative to that base. Map keys carry the packing platform's
+ * separator, so lookups split on both. Returns null for anything unreadable —
+ * callers fall through to the next probe instead of failing the boot.
+ */
+export declare function readAsarEntry(archive: string, entry: string): string | null;
+/**
+ * Read the host standard text. A located desktop archive is handed back as
+ * `<archive>!<entry>` — the `!` form is what locateHostStandard returns.
+ */
+export declare function readHostStandardText(located: string): string;
+/**
  * Structural half of the MAINTENANCE §8 guardrail: everything assertable about the artifact
  * itself, with no session involved. The live half (a restarted host answers the first
  * request with exactly [pwsh, read] on Windows / [bash, read] elsewhere) stays with the operator — it cannot be produced from

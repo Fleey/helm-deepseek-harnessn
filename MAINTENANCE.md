@@ -15,7 +15,7 @@
 
 | 层 | 谁写入 | 内容 |
 |----|--------|------|
-| Profile | `dsh plugin add` / install.sh | 49 个工具（router 4 + 案件生命周期 6 + 领域 23 + Team 5 + Toolbox 1 + Recon 5 + PoC 1 + OOB 3 + Mining 1）、bootstrap 收窄、运行时钩子层（tool-wash / persist / advisory / llm-stream）、references、scripts、工作台 UI |
+| Profile | `dsh plugin add` / `update.ps1` | 49 个工具（router 4 + 案件生命周期 6 + 领域 23 + Team 5 + Toolbox 1 + Recon 5 + PoC 1 + OOB 3 + Mining 1）、bootstrap 收窄、运行时钩子层（tool-wash / persist / advisory / llm-stream）、references、scripts、工作台 UI |
 | Preset | 随包分发 `preset.generated.patch.yml`（宿主经 `dsh.bundle.patch` 读取） | 一行 `@deepseek-ai/dsh-agent-preset` 组合：luna persona、激活词 `helmd`、宿主全套工具行 + `@adwmc/helm-d/agent` |
 
 **单一事实源表**
@@ -23,16 +23,23 @@
 | 数据 | 唯一编辑点 | 自动流向 |
 |------|-----------|---------|
 | persona 文本 | `packages/helmd/presets/persona.txt` | repack 经 `scripts/gen-preset.mjs` 注入 → `packages/helmd/preset.generated.patch.yml`（生成物）→ tgz |
-| preset 平台行 | 宿主内置 `standard` | `gen-preset.mjs` 读取宿主 `<dsh>/node_modules/@deepseek-ai/dsh-web-app/presets/standard.patch.yml`，保留宿主全部行，只替换 persona 行内容、改写组合行头（`preset-helmd` / `id: helmd` / `order` / `description` 取自 `packages/helmd/presets/preset.yml`）、末尾追加 `@adwmc/helm-d/agent` 行。安装/更新脚本在目标机再次生成（bundle 内 `scripts/gen-preset.mjs` 走 `--out`），生成失败才保留 tgz 快照 |
+| preset 平台行 | 宿主内置 `standard` | `gen-preset.mjs` 读取宿主 `standard.patch.yml`（npm 全局/PATH 的 `<dsh>/node_modules/@deepseek-ai/dsh-web-app/presets/`，或桌面版 `resources/app.asar` 内的 `dsh/node_modules/…`，见「受支持宿主区间」），保留宿主全部行，只替换 persona 行内容、改写组合行头（`preset-helmd` / `id: helmd` / `order` / `description` 取自 `packages/helmd/presets/preset.yml`）、末尾追加 `@adwmc/helm-d/agent` 行。安装/更新脚本在目标机再次生成（bundle 内 `scripts/gen-preset.mjs` 走 `--out`），生成失败才保留 tgz 快照 |
 | 工具代码 | `packages/helmd/src/*.ts` | `pnpm build` → dist |
-| 依赖 cohort | `pnpm-workspace.yaml` `overrides`（编译期全家 + cordis + schemastery；与目标宿主同代，当前 `0.2.1-rc.2` / cordis `4.0.4` / schemastery `3.18.4`） | `pnpm install` → `pnpm-lock.yaml` + node_modules；`pnpm peers check` 必须无问题（跨 cohort peer = 迁移未完成）。宿主真实形状由 `pnpm test:checks` 的 host-seam 那几份直接跑在装机宿主包上把关，编译期 cohort 落后不会伪装成绿。钉宿主时留意 launcher 的 `^0.2.0-rc.N` 会让嵌套宿主包上浮一档，`dsh --version` 只反映 launcher。0.2 起 peer 必须显式带 `>=0.2.0-rc.1 <0.2.3-0` 分支（上限随宿主补丁代放宽：放行新一代前先用 DSH NEXT 运行时在该代宿主包上跑 `scripts/checks/run-all.mjs`），且 `dsh-code-runtime` 已改名为 `dsh-ptc-runtime` |
+| 依赖 cohort | `pnpm-workspace.yaml` `overrides`（编译期全家 + cordis + schemastery；与目标宿主同代，当前 `0.2.1-rc.2` / cordis `4.0.4` / schemastery `3.18.4`） | `pnpm install` → `pnpm-lock.yaml` + node_modules；`pnpm peers check` 必须无问题（跨 cohort peer = 迁移未完成）。宿主真实形状由 `pnpm test:checks` 的 host-seam 那几份直接跑在装机宿主包上把关，编译期 cohort 落后不会伪装成绿。钉宿主时留意 launcher 的 `^0.2.0-rc.N` 会让嵌套宿主包上浮一档，`dsh --version` 只反映 launcher。0.2 起 peer 必须按元组分段、每段带该元组最低预发布比较子（当前 `>=0.1.5-rc.1 <0.2.0-0 || >=0.2.0-rc.1 <0.2.1-0 || >=0.2.1-alpha.1 <0.2.2-0 || >=0.2.2-alpha.2 <0.2.3-0`）——plain node-semver 只有比较子与版本同 [major,minor,patch] 元组且带预发布时才准入预发布，宽范围会漏掉整个 0.2.1/0.2.2 预发布线；`dsh-code-runtime` 已改名为 `dsh-ptc-runtime` |
 | 领域文档 | `packages/helmd/references/` | 直接打包 |
-| 运行期状态 | `$DSH_HOME/storages/helmd/`（`runtime-paths.ts` 解析：advisories / team / settings / approvals） | `/api/helmd/{approvals,team,settings}` 与工作台读取 |
-| 工作台 UI | `packages/helmd/client.js`（浏览器半，免构建）+ `cordis.patch.yml` 的 `dsh.client.inject` | 破甲、Case、Team、工具、拦截、设置与关于数据走 `/api/helmd/*` HTTP 投影 |
-| 安装脚本 | 根目录 `install.sh`（fork 桌面适配：desktop 分支 + 版本化 URL） | 随仓库分发（不进 tgz） |
+| 工作台 UI | `packages/helmd/client.js`（浏览器半，免构建）+ `cordis.patch.yml` 的 `dsh.client.inject` | 破甲、Case、Team、拦截、设置与关于数据走 `/api/helmd/*` HTTP 投影 |
+| 安装脚本 | 根目录 `install.{ps1,sh,bat}` | 随仓库分发（不进 tgz） |
 | 更新脚本 | `scripts/update.{ps1,sh}` | 仅仓库，随 git 分发 |
 
 > ⚠️ **禁止手改 `packages/helmd/preset.generated.patch.yml`**。平台行必须从当前宿主 `standard` 生成，否则 `pwsh`、`read` 等工具会缺失或在升级后漂移。两面的归属是分开的：host 面 `cordis.patch.yml` 挂**裸包名** `helm-d`（导出解析到 `dist/health.js`，只注册设置命名空间），agent 面主插件由 preset 末行的 `@adwmc/helm-d/agent` 声明（2026-09-11 起如此。此前 host 行写深路径 `helm-d/dist/health.js`，宿主 `client-modules` 的 `exactPackageSpecifier` 只认 `@scope/name` 两段，于是包的 `dsh.client` 从未被发现、设置卡片永远不出现——浏览器半边不是没跑，是没进模块图）。生成器内建断言：输出行集合 = 宿主 standard 行 + `helmd`、无重复 id、组合行已改写为 `preset-helmd` / `id: helmd`、声明 `@deepseek-ai/dsh-agent-preset`、persona 含激活词 `helmd online`、且 `helm-d` 恰好出现一次，违者构建即红。
+
+### 1.1 受支持宿主区间（`0.2.0-rc.1` – `0.2.2-rc.1` 全部已发布版本）
+
+- **事实源**：`scripts/checks/fixtures/dsh-host-manifest.json`——区间内 15 个已发布版本逐一记录兄弟包钉版（dsh-web-app / dsh-settings / dsh-tools 与宿主锁步）、cordis/schemastery 的 pin 与 floor/resolved、`standard` 内容哈希与 fixture、前端 token 契约 fixture。新增 0.2.x 版本：追加 host 条目及其 fixture，检查无需改。
+- **验证深度（如实）**：peer 准入（两种 semver 语义）、preset 生成与跨宿主自愈（7 份唯一 standard）、UI token（5 份唯一契约）、`defineTool` API 面均经区间全版本回归；运行时冷启动未在 15 个宿主上一一执行。
+- **编译期 cohort 保持 `0.2.1-rc.2`**：区间内插件 API 面（`defineTool` / cordis `Context` / schemastery）跨代稳定，编译期与运行时解耦；cohort 只影响类型与 lockfile，不构成运行时兼容面。
+- **桌面版（Electron）**：宿主树打包在 `resources/app.asar` 的 `dsh/node_modules/…` 内（asarUnpack 只解原生模块），npm/PATH 探测看不到。`locateHostStandard()` 先探桌面安装根（`%LOCALAPPDATA%\Programs\DeepSeek Harness\resources\app.asar` 等，productName `DeepSeek Harness`；bundled CLI 所在 PATH 条目上溯三级），命中后以 `archive!entry` 形式返回并由零依赖 asar 读取器读取；`DSH_DESKTOP_APP_ASAR` 可显式钉一个归档。失败不抛，按未定位处理。
+- **区间外**：`0.2.3-rc.1` / `0.3.0` 起显式排除（peer 上界 `<0.2.3-0`）；纳入新区间按同一流程扩 manifest 与 peer 分段。
 
 ## 2. 发布流程（checklist 式）
 
@@ -41,13 +48,13 @@
 git status --porcelain            # 必须干净
 
 # 0.5 检查（必须在封包前跑：build-sealed 会把 dist 移进 .real，检查只认明文 dist）
-pnpm build && pnpm typecheck && pnpm test:checks   # 检查集 33 项须全绿
+pnpm test:checks                  # 必须 37 PASS
 
 # 1. bump 版本号（唯一位置）
 node -e "const fs=require('fs');const p='packages/helmd/package.json';const pkg=JSON.parse(fs.readFileSync(p,'utf8'));pkg.version='X.Y.Z';fs.writeFileSync(p,JSON.stringify(pkg,null,2)+'\n')"
 
 # 2. 打包（自动同步 preset 源）
-.\scripts\repack.ps1              # 输出 adwmc-helm-d-X.Y.Z.tgz + helmd.tgz 别名
+.\scripts\repack.ps1              # 输出 adwmc-helm-d-X.Y.Z.tgz + helm-d.tgz + helmd.tgz 别名
 
 # 3. 本地验证安装（见 §5 坑位表——同版本会被 pnpm 跳过！）
 dsh plugin --profile web add "<绝对路径>\dist-tgz\helmd.tgz"
@@ -56,26 +63,36 @@ dsh plugin --profile web add "<绝对路径>\dist-tgz\helmd.tgz"
 git tag -a vX.Y.Z -m "..."
 git push && git push origin vX.Y.Z
 
-# 5. release —— 资产五件套缺一不可：
+# 5. release —— 格式与模板见 docs/release-notes-template.md（硬性规则，2026-11-06 起）：
+#    title = "helm-d vX.Y.Z — 主题"；正文从 CHANGELOG 对应段复制；资产恰好 3 个 tgz；
+#    发布后不得替换已上传 asset（静默重传用户无法察觉）；安装命令一律版本化 URL。
 gh release create vX.Y.Z `
   "dist-tgz\adwmc-helm-d-X.Y.Z.tgz" `
+  "dist-tgz\helm-d.tgz" `
   "dist-tgz\helmd.tgz" `
-  "install.ps1" "install.sh" "install.bat" `
-  --title "..." --notes-file "release-notes-X.Y.Z.md"
+  --title "helm-d vX.Y.Z — ..." --notes-file "release-notes-X.Y.Z.md"
 Remove-Item "release-notes-X.Y.Z.md"
 
-# 6. 发布后核验（三条都要绿）
-gh api repos/ADWMC/helm-d/releases/latest -q '.tag_name, (.assets|length)'   # = X.Y.Z, 5
-Invoke-WebRequest -Method Head "https://github.com/ADWMC/helm-d/releases/latest/download/helmd.tgz"  # 200
+# 6. 发布后核验（四条都要绿）
+gh api repos/ADWMC/helm-d/releases/latest -q '.tag_name, (.assets|length)'   # = X.Y.Z, 3
+gh api repos/ADWMC/helm-d/releases/tags/vX.Y.Z -q '.published_at, (.assets[].updated_at)'  # updated 贴近 published，非几天后
+Invoke-WebRequest -Method Head "https://github.com/ADWMC/helm-d/releases/download/vX.Y.Z/helmd.tgz"  # 200
 .\scripts\update.ps1                                                          # installed == latest
 ```
 
-> ⚠️ **历史事故**：v0.1.6 创建时漏传了 installer 三件套。第 5 步的五件资产是硬性清单。
+> ⚠️ **安装/更新文档一律用版本化 URL**（`.../releases/download/vX.Y.Z/...`）。`latest/download/*` 只用于旧链接/手工下载，**不要写进 profile 依赖或 lockfile**：滚动资产会让 pnpm 的 sha512 失配（Issue #5，`ERR_PNPM_TARBALL_INTEGRITY`）。
+
+> ⚠️ **历史事故**：v0.1.6 创建时漏传了 installer 三件套。v0.5.1fix 的 release 实际只有 3 个 tgz，没有 installer。
+>
+> ⚠️ **资产事故记录（2026-11-06 审计核验，均未回滚，属已知问题）**：
+> - **v0.5.0 资产污染**：`releases/download/v0.5.0/helmd.tgz` 与 `helm-d.tgz` 实为 0.5.1 时代旧构建（sha256 `744ea3f9…`），版本化资产 `adwmc-helm-d-0.5.0.tgz` 才是真 0.5.0（`29d33bc1…`，明文未封印形态）；该 release 还挂着一份 0.5.1 资产。钉 `v0.5.0` URL 的用户拿到的是错包——Issue #5 的历史根因。**未清理**（删除 release 资产不可恢复，待维护者裁决）。
+> - **静默换资产**：v0.5.1（published 10-21，assets 10-23 重传）、v0.5.2（+2.7h）、v0.4.0（+1.7h）、v0.4.2（+21min）；仅 v0.5.1fix 在正文留了「覆盖重打」注记。现行规则：发布后不得替换已上传 asset，见 `docs/release-notes-template.md`。
 >
 > ⚠️ **改名记录（@dsh-security/helmd → @adwmc/helm-d，2026-09）**：无 scope 的 `helm-d` 被 npm
-> 以防拼写抢注拒绝（与 helmet 过近），定名 `@adwmc/helm-d`。update 脚本已改为下载稳定别名
-> `helmd.tgz`，与版本化资产名解耦——release 资产保持五件：`adwmc-helm-d-X.Y.Z.tgz` +
-> `helmd.tgz` 别名 + installer 三件套。
+> 以防拼写抢注拒绝（与 helmet 过近），定名 `@adwmc/helm-d`。update 脚本会先解析最新 tag，再下载
+> `releases/download/v<tag>/helmd.tgz` 到本地缓存后安装，不会把滚动地址写进 profile。当前 release
+> 资产保持 3 件 tgz：`adwmc-helm-d-X.Y.Z.tgz` + `helm-d.tgz` + `helmd.tgz`；两个别名只用于手工下载/
+> 兼容旧链接，installer 脚本仍随仓库根目录提供，不再作为 release 资产上传。
 
 ## 3. 改人格 / preset 的流程
 
@@ -103,7 +120,7 @@ Invoke-WebRequest -Method Head "https://github.com/ADWMC/helm-d/releases/latest/
 - 描述里的**数字声明会被 reviewer 和 decay scan 对照代码核验**（工具数、版本号）。改了工具集必须同步：
   - README.md / README.en.md 的徽章行和目录树行
   - registry yml 的 en/zh description（需向上游提 PR）
-- 当前计数基准：49 个工具（router 4 + 案件生命周期 6（含 save_evidence、update_finding）+ 领域 23 + team 5（dispatch/create/status/report/steer）+ toolbox 1 + recon 5 + run_poc 1 + oob 3 + mine_candidates 1；create_case 已废弃）。核对方法：`pnpm test:checks` 里的 `tool-catalog` 检查——它读本行声明的数字与 mock-ctx 实际注册名比对，不一致即红（改工具集而忘了改文档会当场失败）。fork 侧增补：`tool_memory` 随上游 0.5.3 裁决删除（`ledger.ts` 不在树内），`find_tool` / `llm_probe` / `llm_eval_suite` / `helmd_unlock` 保持删除。
+- 当前计数基准：49 个工具（router 4 + 案件生命周期 6（含 save_evidence、update_finding）+ 领域 23 + team 5（dispatch/create/status/report/steer）+ toolbox 1 + recon 5 + run_poc 1 + oob 3 + mine_candidates 1；create_case 已废弃）。核对方法：`pnpm test:checks` 里的 `tool-catalog` 检查——它读本行声明的数字与 mock-ctx 实际注册名比对，不一致即红（改工具集而忘了改文档会当场失败）。
 - fork `ADWMC/awesome-dsh-plugin`：PR 合并后即可删（`gh repo delete --yes`）；再提 PR 时重新 fork 即可
 
 ### 4.1 各商店收录台账（2026-09-14/15，v0.3.1）
@@ -166,7 +183,8 @@ profile         %USERPROFILE%\.dsh\profiles\web\   （node_modules\@adwmc\helm-d
 preset          随包 packages\helmd\preset.generated.patch.yml（dsh >= 0.1.7 无 .agent-presets 部署目录）
 宿主 dsh        %APPDATA%\npm\node_modules\@deepseek-ai\dsh（版本以 `dsh --version` 为准；标准 preset 在其 node_modules\@deepseek-ai\dsh-web-app\presets\standard.patch.yml）
 tgz 缓存        %USERPROFILE%\.dsh\.tgz-cache\
-稳定别名        https://github.com/ADWMC/helm-d/releases/latest/download/helmd.tgz
+版本化下载      https://github.com/ADWMC/helm-d/releases/download/vX.Y.Z/helmd.tgz（profile 依赖用这个）
+latest 别名    https://github.com/ADWMC/helm-d/releases/latest/download/helmd.tgz（仅手工/兼容旧链接，勿写入 lockfile）
 商店页          https://dshmarket.com/p/ADWMC/helm-d--packages-helmd/
 PR #2708        已合并 (2026-08-23)
 当前版本        见 packages/helmd/package.json（以它为准，勿信记忆）
@@ -177,12 +195,14 @@ PR #2708        已合并 (2026-08-23)
 - [ ] `pnpm build` 无错
 - [ ] `pnpm peers check` 无问题（依赖图 cohort 与宿主一致，无跨 cohort peer）
 - [ ] `pnpm test:checks` 全部绿（自动跑 `scripts/checks/*.check.mjs`；host seam 那几份直接跑在宿主真实 `dsh-session` 包上，宿主换访问器即红，不必等真机会话才暴露）
-- [ ] 手工验收脚本（不进 run-all，按需跑）：`node scripts/checks/model-probe.check.mjs`（SSE 响应采集、推理字段排除与 JSONL 审计）、`node scripts/checks/session-timing.mjs`（解压 session.v3.jsonl.zstd 做 step/turn 耗时归因）
+- [ ] 手工验收脚本（不进 run-all，按需跑）：`node scripts/checks/session-timing.mjs`（解压 session.v3.jsonl.zstd 做 step/turn 耗时归因）
 - [ ] mock-ctx 工具数与 README/registry 一致（由 `pnpm test:checks` 的 `tool-catalog` 机械核对，无需手数）
-- [ ] `repack` 后 tgz 内含 `preset.generated.patch.yml` + `presets/{persona.txt,preset.yml}` + `scripts/{gen-preset.mjs,setup-preset.ps1,setup-preset.sh}`，且**不再**含任何 `agent.cordis.yml`
+- [ ] `repack` 后 tgz 为 12 文件封印形态：`payload.dat` 内含 `.real/` 模块与 `scripts/**`（首次导入解压到包内 `scripts/`），不含 `presets/persona.txt`、`presets/profiles/`、明文 `scripts/`；含 `preset.generated.patch.yml` + `presets/preset.yml` + `presets/profiles.dat`，且**不再**含任何 `agent.cordis.yml`
+- [ ] `verify-pack --require-sealed` 解封 `payload.dat`，确认 `scripts/gen-preset.mjs` / `setup-preset.{ps1,sh}` 与两个真实入口都在（缺失即红）
 - [ ] setup-preset 从安装位置跑通，输出 `unchanged:`（即与仓库产物逐字节一致）
 - [ ] `dsh web --dump-config` 里出现 `- id: preset-helmd` / `config: id: helmd` / 末行 `@adwmc/helm-d/agent`，且 preset 的 plugins 行集合 = 宿主 standard 行 + `helmd`（0.1.7 的挂载证明，不需要开真机会话）
-- [ ] release 五件资产齐全 + 稳定别名 200
-- [ ] **preset 护栏**（每次改动 `preset.generated.patch.yml` 产物后）：新开 helmd-preset 测试会话，读首条 `request/header`——首轮 tools 恰为 `[pwsh, read]`（win32），晋升后全量目录含 helmd 域工具 + 平台工具且 ≥60 个。不达标立即回滚 `.bak` 并查 `docs/incident-2026-08-26-preset-stale-generation.md` §4
+- [ ] release 3 个资产齐全 + 稳定别名 200
+- [ ] **preset 护栏**（每次改动 `preset.generated.patch.yml` 产物后）：新开 helmd-preset 测试会话，读首条 `request/header`——首轮 tools 恰为 `[pwsh, read]`（Windows）或 `[bash, read]`（Linux/macOS），晋升后全量目录含 helmd 域工具 + 平台工具且 ≥60 个。不达标立即回滚 `.bak` 并查 `docs/incident-2026-08-26-preset-stale-generation.md` §4
   - 产物结构那一半已自动跑：自动修复后 `health.autoHeal` 会带 `artifact check OK (N rows …)`（行集合 = 宿主 standard + helmd、无重复 id、helmd 行恰好一次、persona 激活行在）——失败会写成 `ARTIFACT CHECK FAILED: …`
-  - 真机会话那一半（首轮 `[pwsh, read]`）仍需操作者手跑：它要在重启后的宿主里发起请求，无法由宿主进程自证
+  - 真机会话那一半（首轮平台 shell + read）仍需操作者手跑：它要在重启后的宿主里发起请求，无法由宿主进程自证
+- [ ] **破甲热切换**（改动 persona / profile overlay 后）：`POST /api/helmd/profile {"id":"stealth"}` 应返回 200 且 `activeId=stealth`，`$DSH_HOME/storages/helmd/profile.json` 同步写入；再发下一条消息应携带 stealth body（= core + overlay），全程无需重启。`profile-switch.check.mjs` 覆盖 section 替换与持久化

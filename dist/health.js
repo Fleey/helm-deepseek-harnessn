@@ -35,4 +35,6 @@ export const HELMD_HEALTH_NS = mod.HELMD_HEALTH_NS
 export const apply = mod.apply
 export const assertPresetArtifact = mod.assertPresetArtifact
 export const evaluateHealth = mod.evaluateHealth
+export const readAsarEntry = mod.readAsarEntry
+export const readHostStandardText = mod.readHostStandardText
 export default mod.default

@@ -1,6 +1,6 @@
 {
   "name": "helmd",
-  "version": "0.5.3-fork.10",
+  "version": "0.6.0-fork.1",
   "private": true,
   "type": "module",
   "main": "dist/health.js",
@@ -50,6 +50,11 @@
     "test:pack": "node scripts/verify-pack.mjs",
     "sync:root": "node scripts/sync-root-shim.mjs",
     "check": "pnpm build && pnpm typecheck && pnpm test:checks"
+  },
+  "devDependencies": {
+    "@types/node": "^24.0.0",
+    "semver": "^7.8.5",
+    "typescript": "^5.9.3"
   },
   "packageManager": "pnpm@11.7.0",
   "engines": {

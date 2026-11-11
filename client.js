@@ -274,13 +274,15 @@ exports.apply = function apply(ctx) {
 		const [hovered, setHovered] = React.useState(false);
 		const [active, setActive] = React.useState(false);
 
+
 		// Popover state lives above every early return: hook order must stay
-		// unconditional. These hooks used to sit below the `return null` guards,
-		// so a session whose preset resolves asynchronously (undefined →
+		// unconditional. These hooks used to sit below the null guards, so a
+		// session whose preset resolves asynchronously (undefined →
 		// "helmd") jumped from 3 to 6 hooks mid-lifetime and React aborted the
 		// whole header-actions slot with "Rendered more hooks than during the
 		// previous render" (Minified React error #300), blanking the session's
-		// conversation view with it. (fork fix, 2026-11-05)
+		// conversation view with it. (upstream fix in v0.6.0: 4cd66d3; first
+		// shipped in this fork on 2026-11-05)
 		const [open, setOpen] = React.useState(false);
 		const rootRef = React.useRef(null);
 		// This capsule's own claim on the shared tab, stable across renders.
