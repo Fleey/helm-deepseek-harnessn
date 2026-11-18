@@ -108,14 +108,36 @@ const HOST_STANDARD_TAILS: string[][] = [
 ]
 
 // ── desktop (Electron) host support ─────────────────────────────────────────
-// The desktop product bundles the whole dsh tree INSIDE its archive at
-// resources/app.asar/dsh/… (electron-builder `files: [{ from: dsh, to: 'dsh' }]`;
-// asarUnpack only lifts native modules out), so none of the node_modules probes
-// can see it. productName is 'DeepSeek Harness'. Mirrors gen-preset.mjs.
+// The desktop product bundles the dsh tree INSIDE its archive. Two layouts:
+//   * DSH NEXT 2.0.23+ (dsh 0.2.2-rc.2+): the CLI package IS the archive root —
+//     `app.asar/node_modules/@deepseek-ai/dsh-web-app/…` (flat, no dsh/ prefix);
+//   * older DeepSeek Harness builds: electron-builder `files: [{ from: dsh,
+//     to: 'dsh' }]` keeps it at `app.asar/dsh/node_modules/…`.
+// asarUnpack only lifts native modules out, so none of the node_modules probes
+// below can see either layout. Newest entry first. Mirrors gen-preset.mjs.
 const DESKTOP_ASAR_ENTRIES = [
+  'node_modules/@deepseek-ai/dsh-web-app/presets/standard.patch.yml',
   'dsh/node_modules/@deepseek-ai/dsh-web-app/presets/standard.patch.yml',
   'dsh/node_modules/@deepseek-ai/dsh-agent-presets/presets/standard/agent.cordis.yml',
 ]
+
+/**
+ * Read the archive FILE as real bytes. Under Electron (the desktop host runs
+ * this module in-process) `node:fs` intercepts every path containing `.asar`
+ * and treats it as a virtual archive: a well-formed archive reads as its
+ * (virtual) contents and a malformed one THROWS "Invalid package" instead of
+ * returning bytes. `original-fs` is Electron's unpatched fs and always reads
+ * the real file. Plain Node has no such module and keeps `node:fs`.
+ */
+function archiveReadFileSync(path: string): Buffer {
+  if (process.versions.electron !== undefined) {
+    try {
+      const ofs = (process as unknown as { getBuiltinModule?: (name: string) => { readFileSync?: (p: string) => Buffer } }).getBuiltinModule?.('original-fs')
+      if (ofs?.readFileSync) return ofs.readFileSync(path)
+    } catch { /* fall through to node:fs */ }
+  }
+  return readFileSync(path)
+}
 
 /**
  * Read one file out of an Electron `app.asar` without dependencies. Layout:
@@ -127,7 +149,7 @@ const DESKTOP_ASAR_ENTRIES = [
  */
 export function readAsarEntry(archive: string, entry: string): string | null {
   let buf: Buffer
-  try { buf = readFileSync(archive) } catch { return null }
+  try { buf = archiveReadFileSync(archive) } catch { return null }
   const jsonStart = buf.indexOf('{"files"')
   if (jsonStart < 0) return null
   // Brace-match the map: it is one JSON object and may contain braces in strings.
@@ -161,8 +183,10 @@ export function readAsarEntry(archive: string, entry: string): string | null {
   const record = node as { size?: unknown; offset?: unknown; unpacked?: unknown }
   if (typeof record.size !== 'number') return null
   if (record.unpacked === true) {
-    // asarUnpack entries live as real files beside the archive.
-    try { return readFileSync(join(archive + '.unpacked', ...entry.split(/[/\\]/)), 'utf8') } catch { return null }
+    // asarUnpack entries live as real files beside the archive. The sibling
+    // path still contains `.asar`, so under Electron it must also bypass the
+    // virtual-archive wrapper.
+    try { return archiveReadFileSync(join(archive + '.unpacked', ...entry.split(/[/\\]/))).toString('utf8') } catch { return null }
   }
   const base = (end + 3) & ~3
   const start = base + Number(record.offset)
@@ -172,8 +196,9 @@ export function readAsarEntry(archive: string, entry: string): string | null {
 
 /**
  * Candidate desktop archives: the standard install roots for productName
- * 'DeepSeek Harness', plus <PATH entry>/../../../resources/app.asar because the
- * installed bundled CLI lives at <app>/resources/runtime/cli/bin.
+ * 'DeepSeek Harness' and the DSH NEXT / DSH Desktop builds, plus
+ * <PATH entry>/../../../resources/app.asar because the installed bundled CLI
+ * lives at <app>/resources/runtime/cli/bin.
  * DSH_DESKTOP_APP_ASAR pins one archive explicitly.
  */
 function desktopAsarCandidates(): string[] {
@@ -181,14 +206,21 @@ function desktopAsarCandidates(): string[] {
   const pinned = process.env.DSH_DESKTOP_APP_ASAR?.trim()
   if (pinned) out.push(resolve(pinned))
   const push = (p: string) => { if (p) out.push(p) }
-  const app = 'DeepSeek Harness'
-  if (process.env.LOCALAPPDATA) push(join(process.env.LOCALAPPDATA, 'Programs', app, 'resources', 'app.asar'))
-  if (process.env.PROGRAMFILES) push(join(process.env.PROGRAMFILES, app, 'resources', 'app.asar'))
-  const pf86 = process.env['PROGRAMFILES(X86)']
-  if (pf86) push(join(pf86, app, 'resources', 'app.asar'))
-  push('/Applications/DeepSeek Harness.app/Contents/Resources/app.asar')
-  if (process.env.HOME) push(join(process.env.HOME, 'Applications', 'DeepSeek Harness.app', 'Contents', 'Resources', 'app.asar'))
-  push('/opt/DeepSeek Harness/resources/app.asar')
+  if (process.platform === 'win32') {
+    for (const app of ['dsh-desktop-next', 'DSH NEXT', 'DSH Desktop', 'dsh-desktop', 'DeepSeek Harness']) {
+      if (process.env.LOCALAPPDATA) push(join(process.env.LOCALAPPDATA, 'Programs', app, 'resources', 'app.asar'))
+      if (process.env.PROGRAMFILES) push(join(process.env.PROGRAMFILES, app, 'resources', 'app.asar'))
+      const pf86 = process.env['PROGRAMFILES(X86)']
+      if (pf86) push(join(pf86, app, 'resources', 'app.asar'))
+    }
+  } else {
+    for (const app of ['DSH NEXT', 'DSH Desktop', 'dsh', 'DeepSeek Harness']) {
+      push(join('/Applications', `${app}.app`, 'Contents', 'Resources', 'app.asar'))
+      if (process.env.HOME) push(join(process.env.HOME, 'Applications', `${app}.app`, 'Contents', 'Resources', 'app.asar'))
+    }
+    push('/opt/DeepSeek Harness/resources/app.asar')
+    push('/opt/dsh-desktop-next/resources/app.asar')
+  }
   const sep = process.platform === 'win32' ? ';' : ':'
   for (const raw of (process.env.PATH ?? '').split(sep)) {
     const dir = raw.replace(/[\\/]+$/, '')

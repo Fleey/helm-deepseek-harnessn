@@ -25,12 +25,43 @@ const candidates = [
   join(process.env.APPDATA ?? join(homedir(), 'AppData', 'Roaming'), 'npm', 'node_modules', '@deepseek-ai', 'dsh', 'node_modules', '@deepseek-ai', 'dsh-web-frontend', 'dist', 'assets'),
   join('/usr/local/lib/node_modules', '@deepseek-ai', 'dsh', 'node_modules', '@deepseek-ai', 'dsh-web-frontend', 'dist', 'assets'),
 ]
-const themeClient = join(process.env.APPDATA ?? join(homedir(), 'AppData', 'Roaming'), 'npm', 'node_modules', '@deepseek-ai', 'dsh', 'node_modules', '@deepseek-ai', 'dsh-client-ui-theme', 'lib', 'client.js')
+// Desktop (DSH NEXT / DSH Desktop) asar layouts: only the desktop Electron
+// (RunAsNode) can stat paths inside app.asar; under a system node these probes
+// no-op and the installed-host layer skips as before. DSH_DESKTOP_APP_DIR may
+// point at the vendored node_modules directly.
+const desktopRoots = []
+if (process.env.DSH_DESKTOP_APP_DIR) desktopRoots.push(process.env.DSH_DESKTOP_APP_DIR)
+if (process.platform === 'darwin') {
+  for (const name of ['DSH NEXT.app', 'DSH Desktop.app', 'dsh.app']) {
+    for (const base of ['/Applications', join(homedir(), 'Applications')]) {
+      desktopRoots.push(
+        join(base, name, 'Contents', 'Resources', 'app.asar', 'node_modules'),
+        join(base, name, 'Contents', 'Resources', 'app', 'node_modules'),
+      )
+    }
+  }
+} else if (process.platform === 'win32') {
+  const local = process.env.LOCALAPPDATA ?? ''
+  for (const name of ['dsh-desktop-next', 'DSH NEXT', 'DSH Desktop', 'dsh-desktop']) {
+    desktopRoots.push(
+      join(local, 'Programs', name, 'resources', 'app.asar', 'node_modules'),
+      join(local, 'Programs', name, 'resources', 'app', 'node_modules'),
+    )
+  }
+}
+for (const root of desktopRoots) {
+  candidates.push(join(root, '@deepseek-ai', 'dsh-web-frontend', 'dist', 'assets'))
+}
+const themeCandidates = [
+  join(process.env.APPDATA ?? join(homedir(), 'AppData', 'Roaming'), 'npm', 'node_modules', '@deepseek-ai', 'dsh', 'node_modules', '@deepseek-ai', 'dsh-client-ui-theme', 'lib', 'client.js'),
+  ...desktopRoots.map((root) => join(root, '@deepseek-ai', 'dsh-client-ui-theme', 'lib', 'client.js')),
+]
+const themeClient = themeCandidates.find((file) => existsSync(file))
 const assets = candidates.find((dir) => existsSync(dir))
 const cssFiles = assets === undefined ? [] : readdirSync(assets).filter((name) => name.endsWith('.css'))
 const installedCss = [
   ...cssFiles.map((name) => readFileSync(join(assets, name), 'utf8')),
-  ...(existsSync(themeClient) ? [readFileSync(themeClient, 'utf8')] : []),
+  ...(themeClient !== undefined ? [readFileSync(themeClient, 'utf8')] : []),
 ].join('\n')
 
 if (installedCss !== '') {

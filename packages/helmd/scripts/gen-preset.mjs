@@ -52,15 +52,29 @@ const SEALED_KEY = scryptSync(SEALED_SECRET, SEALED_SALT, 32)
 
 /**
  * `!!js` conditions for the two team rows this preset adds: each stands down
- * while the Host root already runs the same experimental Agent Teams plugin.
+ * while the Host root already runs the same Agent Teams plugin, OR while the
+ * host generation cannot resolve the row's package name at all.
  *
- * The official Agent Teams bundle (`@deepseek-ai/dsh-experimental-agent-team-profile`)
- * inserts `agent-team` and `tool-agent-team` at the Host root. With it on, a
- * second `tool-agent-team` inside this preset installs the Team tools on every
- * team member twice: the second `systemPrompt.section({ name: 'team:policy' })`
- * throws "already registered in this scope", the serial `agent/created`
- * dispatch fails, the Agent is torn down and the client opens it again — the
- * session flickers in a create/dispose loop (about 10 per second).
+ * Since dsh 0.2.2-rc.2 the Team packages are stable names —
+ * `@deepseek-ai/dsh-agent-team` / `@deepseek-ai/dsh-tool-agent-team` — and
+ * dsh-base mounts both at the Host root (the old experimental
+ * `…-agent-team-profile` bundle is retired). Both rows therefore name the
+ * stable packages. A `!!js` name is NOT possible: the preset registry
+ * validates `name` as a literal string and the Loader imports it verbatim.
+ * On older in-interval hosts (0.2.0-rc.1 … 0.2.2-rc.1) the stable packages
+ * do not exist, so both rows stand down there through a resolve-probe in
+ * the disabled condition (`baseUrl` + `createRequire`, the same resolution
+ * the host's own skill-filesystem row uses); helmd's own team_* tools carry
+ * the local protocol on those hosts, exactly as before. The standdown scan
+ * matches BOTH spellings, so a host still running the retired experimental
+ * bundle also suppresses the duplicate rows.
+ *
+ * With the host copy on, a second `tool-agent-team` inside this preset
+ * installs the Team tools on every team member twice: the second
+ * `systemPrompt.section({ name: 'team:policy' })` throws "already registered
+ * in this scope", the serial `agent/created` dispatch fails, the Agent is torn
+ * down and the client opens it again — the session flickers in a create/dispose
+ * loop (about 10 per second).
  *
  * The Loader evaluates these as `with (ctx) eval(expr)`. `loader.entries()`
  * walks the Host root tree only (a preset mounts a tree of its own), so the
@@ -69,12 +83,27 @@ const SEALED_KEY = scryptSync(SEALED_SECRET, SEALED_SALT, 32)
  * the text is emitted inside a double-quoted YAML scalar.
  */
 const TEAM_SERVICE_ID = 'helmd-agent-team'
-function hostRunsPlugin(name, exceptId) {
+/** Host-root scan: any live entry whose name is one of `names` (excluding `exceptId`). */
+function hostRunsPlugin(names, exceptId) {
   const self = exceptId === undefined ? '' : ` && e.options?.id !== '${exceptId}'`
-  return `[...(ctx.get('loader')?.entries?.() ?? [])].some((e) => e.options?.name === '${name}'${self} && !e.disabled)`
+  const match = names.map((name) => `e.options?.name === '${name}'`).join(' || ')
+  return `[...(ctx.get('loader')?.entries?.() ?? [])].some((e) => (${match})${self} && !e.disabled)`
 }
-const TEAM_TOOLS_ON_HOST = hostRunsPlugin('@deepseek-ai/dsh-experimental-tool-agent-team')
-const TEAM_SERVICE_ON_HOST = hostRunsPlugin('@deepseek-ai/dsh-experimental-agent-team', TEAM_SERVICE_ID)
+/** Resolve-probe: can the host tree resolve `pkg` from its own baseUrl? */
+function hostResolves(pkg) {
+  return `(() => { try { return Boolean(baseUrl && process.getBuiltinModule('node:module').createRequire(baseUrl).resolve('${pkg}/package.json')) } catch { return false } })()`
+}
+// Tool row: stable name; stands down on hosts without the package, and beside
+// a live host copy of either spelling.
+const TEAM_TOOLS_ON_HOST = `!(${hostResolves('@deepseek-ai/dsh-tool-agent-team')}) || ${hostRunsPlugin([
+  '@deepseek-ai/dsh-tool-agent-team',
+  '@deepseek-ai/dsh-experimental-tool-agent-team',
+])}`
+// Service row: same contract at the host plane.
+const TEAM_SERVICE_ON_HOST = `!(${hostResolves('@deepseek-ai/dsh-agent-team')}) || ${hostRunsPlugin([
+  '@deepseek-ai/dsh-agent-team',
+  '@deepseek-ai/dsh-experimental-agent-team',
+], TEAM_SERVICE_ID)}`
 
 const scriptDir = dirname(fileURLToPath(import.meta.url))
 const repoRoot = resolve(scriptDir, '..')
@@ -210,11 +239,15 @@ function desktopStandardCandidates() {
 }
 
 // ── desktop (Electron) asar host support ───────────────────────────────────
-// The desktop product bundles the whole dsh tree INSIDE its archive at
-// resources/app.asar/dsh/… (electron-builder `files: [{ from: dsh, to: 'dsh' }]`;
-// asarUnpack only lifts native modules out), so none of the node_modules probes
-// below can see it. productName is 'DeepSeek Harness'.
+// The desktop product bundles the dsh tree INSIDE its archive. Two layouts:
+//   * DSH NEXT 2.0.23+ (dsh 0.2.2-rc.2+): the CLI package IS the archive root —
+//     `app.asar/node_modules/@deepseek-ai/dsh-web-app/…` (flat, no dsh/ prefix);
+//   * older DeepSeek Harness builds: electron-builder `files: [{ from: dsh,
+//     to: 'dsh' }]` keeps it at `app.asar/dsh/node_modules/…`.
+// asarUnpack only lifts native modules out, so none of the node_modules probes
+// below can see either layout. Newest entry first.
 const DESKTOP_ASAR_ENTRIES = [
+  'node_modules/@deepseek-ai/dsh-web-app/presets/standard.patch.yml',
   'dsh/node_modules/@deepseek-ai/dsh-web-app/presets/standard.patch.yml',
   'dsh/node_modules/@deepseek-ai/dsh-agent-presets/presets/standard/agent.cordis.yml',
 ]
@@ -225,10 +258,25 @@ const DESKTOP_ASAR_ENTRIES = [
  * file bytes at a 4-byte-aligned base; each entry's `offset` (string past 2 GiB
  * archives) is relative to that base. Map keys carry the packing platform's
  * separator, so lookups split on both. Returns null for anything unreadable.
+ *
+ * Under Electron (RunAsNode) `node:fs` itself intercepts every path containing
+ * `.asar` and treats it as a virtual archive — reading the archive FILE as
+ * bytes then fails with ENOENT. `original-fs` is Electron's unpatched fs and
+ * reads the real bytes; plain Node has no such module and keeps `node:fs`.
  */
+function archiveReadFileSync(path) {
+  if (process.versions.electron !== undefined) {
+    try {
+      const ofs = process.getBuiltinModule('original-fs')
+      if (ofs?.readFileSync) return ofs.readFileSync(path)
+    } catch { /* fall through to node:fs */ }
+  }
+  return readFileSync(path)
+}
+
 export function readAsarEntry(archive, entry) {
   let buf
-  try { buf = readFileSync(archive) } catch { return null }
+  try { buf = archiveReadFileSync(archive) } catch { return null }
   const jsonStart = buf.indexOf('{"files"')
   if (jsonStart < 0) return null
   // Brace-match the map: it is one JSON object and may contain braces in strings.
@@ -260,8 +308,10 @@ export function readAsarEntry(archive, entry) {
   }
   if (node === null || typeof node !== 'object' || typeof node.size !== 'number') return null
   if (node.unpacked === true) {
-    // asarUnpack entries live as real files beside the archive.
-    try { return readFileSync(join(archive + '.unpacked', ...entry.split(/[/\\]/)), 'utf8') } catch { return null }
+    // asarUnpack entries live as real files beside the archive. The sibling
+    // path still contains `.asar`, so under Electron it must also bypass the
+    // virtual-archive wrapper.
+    try { return archiveReadFileSync(join(archive + '.unpacked', ...entry.split(/[/\\]/))).toString('utf8') } catch { return null }
   }
   const base = (end + 3) & ~3
   const start = base + Number(node.offset)
@@ -271,8 +321,9 @@ export function readAsarEntry(archive, entry) {
 
 /**
  * Candidate desktop archives: the standard install roots for productName
- * 'DeepSeek Harness', plus <PATH entry>/../../../resources/app.asar because the
- * installed bundled CLI lives at <app>/resources/runtime/cli/bin.
+ * 'DeepSeek Harness' and the DSH NEXT / DSH Desktop builds, plus
+ * <PATH entry>/../../../resources/app.asar because the installed bundled CLI
+ * lives at <app>/resources/runtime/cli/bin.
  * DSH_DESKTOP_APP_ASAR pins one archive explicitly.
  */
 function desktopAsarCandidates() {
@@ -280,13 +331,20 @@ function desktopAsarCandidates() {
   const pinned = process.env.DSH_DESKTOP_APP_ASAR?.trim()
   if (pinned) out.push(resolve(pinned))
   const push = (p) => { if (p) out.push(p) }
-  const app = process.platform === 'win32' ? 'DeepSeek Harness' : 'DeepSeek Harness'
-  if (process.env.LOCALAPPDATA) push(join(process.env.LOCALAPPDATA, 'Programs', app, 'resources', 'app.asar'))
-  if (process.env.PROGRAMFILES) push(join(process.env.PROGRAMFILES, app, 'resources', 'app.asar'))
-  if (process.env['PROGRAMFILES(X86)']) push(join(process.env['PROGRAMFILES(X86)'], app, 'resources', 'app.asar'))
-  push('/Applications/DeepSeek Harness.app/Contents/Resources/app.asar')
-  if (process.env.HOME) push(join(process.env.HOME, 'Applications', 'DeepSeek Harness.app', 'Contents', 'Resources', 'app.asar'))
-  push('/opt/DeepSeek Harness/resources/app.asar')
+  if (process.platform === 'win32') {
+    for (const app of ['dsh-desktop-next', 'DSH NEXT', 'DSH Desktop', 'dsh-desktop', 'DeepSeek Harness']) {
+      if (process.env.LOCALAPPDATA) push(join(process.env.LOCALAPPDATA, 'Programs', app, 'resources', 'app.asar'))
+      if (process.env.PROGRAMFILES) push(join(process.env.PROGRAMFILES, app, 'resources', 'app.asar'))
+      if (process.env['PROGRAMFILES(X86)']) push(join(process.env['PROGRAMFILES(X86)'], app, 'resources', 'app.asar'))
+    }
+  } else {
+    for (const app of ['DSH NEXT', 'DSH Desktop', 'dsh', 'DeepSeek Harness']) {
+      push(join('/Applications', `${app}.app`, 'Contents', 'Resources', 'app.asar'))
+      if (process.env.HOME) push(join(process.env.HOME, 'Applications', `${app}.app`, 'Contents', 'Resources', 'app.asar'))
+    }
+    push('/opt/DeepSeek Harness/resources/app.asar')
+    push('/opt/dsh-desktop-next/resources/app.asar')
+  }
   const sep = process.platform === 'win32' ? ';' : ':'
   for (const raw of (process.env.PATH ?? '').split(sep)) {
     const dir = raw.replace(/[\\/]+$/, '')
@@ -500,30 +558,32 @@ function generate(hostText, personaText) {
   if (personaStart < 0) throw new Error('host standard has no top-level `persona` row in plugins')
   if (personaEnd < 0) personaEnd = end
   const helmdRow = [
-    // Host-native experimental team tools, scoped to helmd sessions only (the
-    // service row below is the host-plane half; this row is the per-preset half,
-    // mirroring how standard.patch.yml scopes tool-subagent inside the preset).
-    // Stands down when the Host root already runs the same plugin (see
-    // TEAM_TOOLS_ON_HOST below).
+    // Host-native team tools, scoped to helmd sessions only (the service row
+    // below is the host-plane half; this row is the per-preset half, mirroring
+    // how standard.patch.yml scopes tool-subagent inside the preset). The
+    // stable name ships since dsh 0.2.2-rc.2; on older in-interval hosts the
+    // resolve-probe in TEAM_TOOLS_ON_HOST stands the row down (helmd's own
+    // team_* tools carry the protocol there). The name must stay a literal
+    // string — the preset registry rejects a !!js name.
     `${basePrefix}- id: tool-agent-team`,
-    `${' '.repeat(base + 2)}name: '@deepseek-ai/dsh-experimental-tool-agent-team'`,
+    `${' '.repeat(base + 2)}name: '@deepseek-ai/dsh-tool-agent-team'`,
     `${' '.repeat(base + 2)}disabled: !!js "${TEAM_TOOLS_ON_HOST}"`,
     `${basePrefix}- id: helmd`,
     `${' '.repeat(base + 2)}name: '@adwmc/helm-d/agent'`,
   ]
-  // Host-plane team service (roster/mailbox/task DAG). static inject is all
-  // host-level services, so it composes at the top level like `subagent` does
-  // in dsh-base — a sibling entry INSIDE the same `- insert:` list (col 4,
+  // Host-plane team service (task DAG over the subagent tree). static inject is
+  // all host-level services, so it composes at the top level like `subagent`
+  // does in dsh-base — a sibling entry INSIDE the same `- insert:` list (col 4,
   // matching preset-helmd), outside any plugins block, hence invisible to
   // pluginRowIds and to the helmd-only tool scoping. Its own id keeps it apart
-  // from the official bundle's `agent-team` row (inserts are not deduplicated),
-  // and it stands down when that row is already running.
+  // from the host's `agent-team` row (inserts are not deduplicated), and it
+  // stands down when that row is already running. No config: the stable
+  // service rejects the old `maxMembers` key (TEAM_INVALID_CONFIG) and its
+  // defaults need no override.
   const teamServiceRow = [
     `    - id: ${TEAM_SERVICE_ID}`,
-    "      name: '@deepseek-ai/dsh-experimental-agent-team'",
+    "      name: '@deepseek-ai/dsh-agent-team'",
     `      disabled: !!js "${TEAM_SERVICE_ON_HOST}"`,
-    '      config:',
-    '        maxMembers: 8',
   ]
   const insertIdx = lines.findIndex((l) => l === '- insert:')
   if (insertIdx < 0 || insertIdx > pi) {

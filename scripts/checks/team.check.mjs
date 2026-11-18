@@ -237,13 +237,15 @@ await report.check('task DAG claims one owner and unblocks dependents', () => {
 await report.check('team_steer delivers to a running worker and rejects non-orchestrators', async () => {
   let definition
   const delivered = []
+  // Current host shape (dsh >= 0.2.2-rc.2): sendMessage(sender, targetId,
+  // content, { signal }); the legacy steerPrompt fallback is covered below.
   const ctx = {
     tools: { register: (def) => { if (def.name === 'team_steer') definition = def } },
     get: (name) => name === 'subagents' ? {
       getProvider: () => ({ name: 'spawn' }),
       startActivation: async () => { throw new Error('unused') },
-      steerPrompt: async (parent, childId, content, source) => {
-        delivered.push({ parent, childId, text: content[0].text, source })
+      sendMessage: async (sender, targetId, content, options) => {
+        delivered.push({ parent: sender, childId: targetId, text: content[0].text, signal: options.signal })
         return 'msg-1'
       },
     } : undefined,
@@ -267,6 +269,51 @@ await report.check('team_steer delivers to a running worker and rejects non-orch
   await assert.rejects(
     () => definition.execute({ ticketId: workerTicket.id, role: 'static', message: 'nope' }, { agent: { id: 'child-worker-self' }, signal }),
     /cannot steer workers/,
+  )
+})
+
+await report.check('team_steer falls back to the legacy steerPrompt manager API', async () => {
+  let definition
+  const delivered = []
+  const ctx = {
+    tools: { register: (def) => { if (def.name === 'team_steer') definition = def } },
+    get: (name) => name === 'subagents' ? {
+      getProvider: () => ({ name: 'spawn' }),
+      startActivation: async () => { throw new Error('unused') },
+      steerPrompt: async (parent, childId, content, source) => {
+        delivered.push({ parent, childId, text: content[0].text, source })
+        return 'msg-legacy'
+      },
+    } : undefined,
+  }
+  teamTools.registerTeamTools(ctx)
+  const ticket = team.createTicket({ goal: 'steer legacy', caseDir: join(home, 'steer-legacy'), roles: ['static'] })
+  team.assignRole(ticket.id, 'static', 'child-legacy-steer')
+  const signal = new AbortController().signal
+  const text = await definition.execute(
+    { ticketId: ticket.id, role: 'static', message: 'legacy path' },
+    { agent: { id: 'parent-legacy' }, signal },
+  )
+  assert.match(text, /steer accepted/)
+  assert.equal(delivered[0].childId, 'child-legacy-steer')
+  assert.deepEqual(delivered[0].source, { kind: 'user' })
+})
+
+await report.check('team_steer reports a manager with neither steer API', async () => {
+  let definition
+  const ctx = {
+    tools: { register: (def) => { if (def.name === 'team_steer') definition = def } },
+    get: (name) => name === 'subagents' ? {
+      getProvider: () => ({ name: 'spawn' }),
+      startActivation: async () => { throw new Error('unused') },
+    } : undefined,
+  }
+  teamTools.registerTeamTools(ctx)
+  const ticket = team.createTicket({ goal: 'steer absent', caseDir: join(home, 'steer-absent'), roles: ['static'] })
+  team.assignRole(ticket.id, 'static', 'child-absent-steer')
+  await assert.rejects(
+    () => definition.execute({ ticketId: ticket.id, role: 'static', message: 'nope' }, { agent: { id: 'parent-absent' }, signal: new AbortController().signal }),
+    /neither sendMessage nor steerPrompt/,
   )
 })
 

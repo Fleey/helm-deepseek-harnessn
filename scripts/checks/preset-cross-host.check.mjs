@@ -66,9 +66,9 @@ try {
 
     await report.check(`the team rows stand down when the host already runs Agent Teams (${std.hosts[0]}…)`, () => {
       assert.match(text, /^ {10}- id: tool-agent-team$/m, 'the preset-scoped team tool row must exist')
-      assert.match(text, /disabled: !!js "\[\.\.\.\(ctx\.get\('loader'\)/, 'the team tool row must carry the host-standdown condition')
+      assert.match(text, /disabled: !!js ".*\[\.\.\.\(ctx\.get\('loader'\)/, 'the team tool row must carry the host-standdown condition')
       assert.match(text, /^    - id: helmd-agent-team$/m, 'the top-level team service row must exist under its own id')
-      assert.match(text, /^ {6}disabled: !!js "\[\.\.\.\(ctx\.get\('loader'\)/m, 'the team service row must carry the host-standdown condition')
+      assert.match(text, /^ {6}disabled: !!js ".*\[\.\.\.\(ctx\.get\('loader'\)/m, 'the team service row must carry the host-standdown condition')
       assert.equal((text.match(/@adwmc\/helm-d/g) ?? []).length, 1, 'helmd must be declared exactly once')
     })
   }

@@ -104,8 +104,17 @@ export interface TeamActivationSpec {
 export interface TeamSubagentRuntime {
   getProvider(name: string): TeamSubagentProvider | undefined
   startActivation(spec: TeamActivationSpec): Promise<TeamActivation>
-  /** Host-native mid-turn steer (dsh-subagent manager). Optional: old hosts
-   *  only expose startActivation, and team_steer reports that clearly. */
+  /** Host-native mid-turn steer (dsh-subagent manager, dsh >= 0.2.2-rc.2:
+   *  `sendMessage(sender, targetId, content, { signal })`). Optional: older
+   *  hosts exposed `steerPrompt` instead, and hosts without either make
+   *  team_steer report that clearly. */
+  sendMessage?(
+    sender: unknown,
+    targetId: string,
+    content: Array<{ type: 'text'; text: string }>,
+    options: { signal: AbortSignal },
+  ): Promise<unknown>
+  /** Pre-0.2.2-rc.2 steer spelling, kept for the older in-interval hosts. */
   steerPrompt?(
     parent: unknown,
     childId: string,
@@ -113,6 +122,26 @@ export interface TeamSubagentRuntime {
     source: unknown,
     signal: AbortSignal,
   ): Promise<unknown>
+}
+
+/** Deliver one steer message through whichever manager API the host exposes.
+ *  Returns false when the host has neither (the caller reports it). */
+export async function steerWorker(
+  subagents: TeamSubagentRuntime,
+  parent: unknown,
+  childId: string,
+  content: Array<{ type: 'text'; text: string }>,
+  signal: AbortSignal,
+): Promise<boolean> {
+  if (typeof subagents.sendMessage === 'function') {
+    await subagents.sendMessage(parent, childId, content, { signal })
+    return true
+  }
+  if (typeof subagents.steerPrompt === 'function') {
+    await subagents.steerPrompt(parent, childId, content, { kind: 'user' }, signal)
+    return true
+  }
+  return false
 }
 
 export interface TeamAgentRegistry {

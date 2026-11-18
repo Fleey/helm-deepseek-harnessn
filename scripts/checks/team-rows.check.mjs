@@ -1,10 +1,12 @@
-// Subject: the two experimental Agent Teams rows the preset adds must stand
-// down while the Host root already runs the same plugin. With the official
-// Agent Teams bundle on, a second `tool-agent-team` installs the Team tools on
-// every team member twice; the second `team:policy` prompt section throws
-// "already registered in this scope", `agent/created` fails, and the Agent is
-// torn down and reopened in a loop (the session flickers). The conditions are
-// evaluated here exactly the way the Loader does it: `with (ctx) eval(expr)`.
+// Subject: the two Agent Teams rows the preset adds must stand down while the
+// Host root already runs the same plugin (stable names since dsh 0.2.2-rc.2,
+// experimental spellings before), or while the host cannot resolve the stable
+// packages at all. With the host copy on, a second `tool-agent-team` installs
+// the Team tools on every team member twice; the second `team:policy` prompt
+// section throws "already registered in this scope", `agent/created` fails,
+// and the Agent is torn down and reopened in a loop (the session flickers).
+// The conditions are evaluated here exactly the way the Loader does it:
+// `with (ctx) eval(expr)`.
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
@@ -12,8 +14,13 @@ import { repoRoot } from './artifacts.mjs'
 import { createReporter } from './reporter.mjs'
 
 const report = createReporter('team-rows')
-const TOOL = '@deepseek-ai/dsh-experimental-tool-agent-team'
-const SERVICE = '@deepseek-ai/dsh-experimental-agent-team'
+// Stable names since dsh 0.2.2-rc.2 (dsh-base mounts both at the Host root);
+// the retired experimental bundle used the experimental spellings, which the
+// standdown conditions still match.
+const TOOL = '@deepseek-ai/dsh-tool-agent-team'
+const SERVICE = '@deepseek-ai/dsh-agent-team'
+const TOOL_OLD = '@deepseek-ai/dsh-experimental-tool-agent-team'
+const SERVICE_OLD = '@deepseek-ai/dsh-experimental-agent-team'
 
 /** The Loader's own evaluator (cordis-plugin-loader `evaluate`). */
 const evaluate = new Function('ctx', 'expr', 'with (ctx) { return eval(expr) }')
@@ -29,12 +36,25 @@ function rowFor(text, name) {
   return { id, name, expr: disabled[1] }
 }
 
-/** Evaluate both rows against a Host root that holds `hostEntries`. */
-function scenario(text, hostEntries) {
+/**
+ * Evaluate both rows against a Host root that holds `hostEntries`.
+ * `resolvable` models the resolve-probe half of the conditions: whether the
+ * host tree can resolve the stable Team packages from its baseUrl (true on
+ * dsh >= 0.2.2-rc.2, false on the older in-interval hosts).
+ */
+function scenario(text, hostEntries, resolvable = true) {
   const tool = rowFor(text, TOOL)
   const service = rowFor(text, SERVICE)
   const root = []
-  const ctx = { get: (name) => (name === 'loader' ? { entries: function* () { yield* root } } : undefined) }
+  const require = { resolve: (specifier) => {
+    if (resolvable && (specifier === `${TOOL}/package.json` || specifier === `${SERVICE}/package.json`)) return '/host/' + specifier
+    throw new Error('MODULE_NOT_FOUND: ' + specifier)
+  } }
+  const ctx = {
+    baseUrl: 'file:///host/profile/cordis.yml',
+    process: { getBuiltinModule: (name) => (name === 'node:module' ? { createRequire: () => require } : undefined) },
+    get: (name) => (name === 'loader' ? { entries: function* () { yield* root } } : undefined),
+  }
   const entry = (options, expr) => ({
     options,
     get disabled() { return expr === undefined ? Boolean(options.disabled) : Boolean(evaluate(ctx, expr)) },
@@ -54,6 +74,10 @@ const OFFICIAL = [
   { id: 'agent-team', name: SERVICE },
   { id: 'tool-agent-team', name: TOOL },
 ]
+const OFFICIAL_OLD = [
+  { id: 'agent-team', name: SERVICE_OLD },
+  { id: 'tool-agent-team', name: TOOL_OLD },
+]
 
 for (const file of ['packages/helmd/preset.generated.patch.yml', 'preset.generated.patch.yml']) {
   const text = readFileSync(join(repoRoot, file), 'utf8')
@@ -71,8 +95,20 @@ for (const file of ['packages/helmd/preset.generated.patch.yml', 'preset.generat
     assert.deepEqual(scenario(text, off), { serviceId: 'helmd-agent-team', service: false, tool: false })
   })
 
+  await report.check(`${file}: the retired experimental bundle also stands both rows down`, () => {
+    assert.deepEqual(scenario(text, OFFICIAL_OLD), { serviceId: 'helmd-agent-team', service: true, tool: true })
+  })
+
+  await report.check(`${file}: on a host without the stable Team packages both rows stand down`, () => {
+    assert.deepEqual(scenario(text, [], false), { serviceId: 'helmd-agent-team', service: true, tool: true })
+  })
+
   await report.check(`${file}: the service row has its own id, apart from the bundle's agent-team`, () => {
     assert.doesNotMatch(text, /^ {4}- id: agent-team$/m, 'inserts are not deduplicated; a second agent-team row would run twice')
+  })
+
+  await report.check(`${file}: the service row carries no maxMembers config (TEAM_INVALID_CONFIG on stable hosts)`, () => {
+    assert.doesNotMatch(text, /maxMembers/, 'the stable team service rejects maxMembers')
   })
 }
 

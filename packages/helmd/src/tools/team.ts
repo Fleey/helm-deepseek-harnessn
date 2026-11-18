@@ -12,7 +12,7 @@ import {
   createTicket, getTicket, listTickets, recordReport, recordSteer, sessionRole, TEAM_ROLES,
   type ReportState, type TeamRole,
 } from '../team.js'
-import { startTeamWorker, type TeamSubagentRuntime } from '../team-worker.js'
+import { startTeamWorker, steerWorker, type TeamSubagentRuntime } from '../team-worker.js'
 import { getCase } from '../case.js'
 
 interface ExecLike {
@@ -207,16 +207,19 @@ export function registerTeamTools(ctx: Context): void {
       try {
         subagents = (ctx as unknown as { get?: (name: string) => TeamSubagentRuntime | undefined }).get?.('subagents')
       } catch { /* host without subagent seam */ }
-      if (subagents?.steerPrompt === undefined) {
-        throw new Error('host subagent manager does not expose steerPrompt; cannot steer a running worker')
+      if (subagents === undefined || (subagents.sendMessage === undefined && subagents.steerPrompt === undefined)) {
+        throw new Error('host subagent manager exposes neither sendMessage nor steerPrompt; cannot steer a running worker')
       }
-      await subagents.steerPrompt(
+      const delivered = await steerWorker(
+        subagents,
         exec.agent,
         assignment.sessionId,
         [{ type: 'text', text: `[helm-d steer ${ticket.id}/${args.role}] ${args.message.trim()}` }],
-        { kind: 'user' },
         exec.signal,
       )
+      if (!delivered) {
+        throw new Error('host subagent manager exposes neither sendMessage nor steerPrompt; cannot steer a running worker')
+      }
       const steer = recordSteer(ticket.id, args.role, args.message)
       return `steer accepted: ${steer.id} → ${args.role} (${assignment.sessionId})`
     },

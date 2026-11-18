@@ -29,7 +29,7 @@ import {
   proposeRevision, evaluateRevision, activateRevision, rollbackRevision, listRevisions,
   type ArtifactKind, type ReportState, type TeamRole,
 } from './team.js'
-import { startTeamWorker } from './team-worker.js'
+import { startTeamWorker, steerWorker } from './team-worker.js'
 import { loadSettings, saveSettings } from './settings.js'
 import { listApprovals, decideApproval } from './approval.js'
 import { TOOL_CATALOG, catalogEntry } from './toolbox/catalog.js'
@@ -383,11 +383,12 @@ export function registerHelmdApi(ctx: Context, getHealth?: () => unknown): void 
         const subagents = (ctx as unknown as { get?: (name: string) => any }).get?.('subagents')
         const agents = (ctx as unknown as { get?: (name: string) => any }).get?.('agents')
         const parent = agents?.get?.(String(body?.parentSessionId ?? ''))
-        if (subagents?.steerPrompt === undefined || parent === undefined) throw new Error('steer runtime unavailable')
+        if (subagents === undefined || parent === undefined) throw new Error('steer runtime unavailable')
         const message = String(body?.message ?? '').trim()
         if (message === '') throw new Error('message is required')
         const controller = new AbortController()
-        await subagents.steerPrompt(parent, assignment.sessionId, [{ type: 'text', text: `[helm-d steer ${ticket.id}/${role}] ${message}` }], { kind: 'user' }, controller.signal)
+        const delivered = await steerWorker(subagents, parent, assignment.sessionId, [{ type: 'text', text: `[helm-d steer ${ticket.id}/${role}] ${message}` }], controller.signal)
+        if (!delivered) throw new Error('steer runtime unavailable (host subagent manager exposes neither sendMessage nor steerPrompt)')
         return recordSteer(ticket.id, role, message)
       }
       if (action === 'report') {

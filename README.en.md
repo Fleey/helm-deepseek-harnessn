@@ -219,7 +219,7 @@ See [architecture](docs/architecture.md) and [design principles](docs/principles
 
 | Item | Requirement |
 |---|---|
-| DSH | every published version in `0.2.0-rc.1` – `0.2.2-rc.1` (preset generation/repair and workbench UI tokens regression-tested across the whole interval; runtime cold-start not executed on each of the 15 hosts) |
+| DSH | every published version in `0.2.0-rc.1` – `0.2.2-rc.4` (preset generation/repair and workbench UI tokens regression-tested across the whole interval; host-seam checks run against the installed rc.3 desktop host; runtime cold-start not executed on each of the 18 hosts) |
 | Node | `>= 22.19.0` |
 | Platform | Windows uses `pwsh`; Linux / macOS use `bash`; WSL via `wsl.exe` |
 

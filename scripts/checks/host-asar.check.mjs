@@ -1,14 +1,17 @@
-// Subject: desktop (Electron) installs bundle the whole dsh tree inside
-// resources/app.asar/dsh/…, which no node_modules probe can see — the 2026-11
-// real-session finding behind the preset standdown work. This check pins:
+// Subject: desktop (Electron) installs bundle the dsh tree inside
+// resources/app.asar — older DeepSeek Harness builds at app.asar/dsh/…,
+// DSH NEXT 2.0.23+ (dsh 0.2.2-rc.2+) flat at app.asar/node_modules/… — which
+// no node_modules probe can see. This check pins:
 //   1. the committed fixture archive (built with @electron/asar 4.3.1, the same
 //      tool the product packs with) yields the newest in-interval host standard
-//      through the shipped zero-dependency reader;
+//      through the shipped zero-dependency reader, in BOTH archive layouts;
 //   2. unreadable / wrong-shape / truncated archives read as null (probe falls
 //      through instead of failing boot);
 //   3. an `unpacked` entry is read from the app.asar.unpacked sibling;
 //   4. end to end through the public health API: DSH_DESKTOP_APP_ASAR drives
 //      locate + HOST_UPGRADED repair against the archived standard.
+// Under Electron (RunAsNode) node:fs itself virtualizes every `.asar` path,
+// so archive bytes are read through original-fs there; plain node keeps fs.
 import assert from 'node:assert/strict'
 import { execFileSync } from 'node:child_process'
 import { createHash } from 'node:crypto'
@@ -28,20 +31,36 @@ const fixtures = join(here, 'fixtures')
 const manifest = JSON.parse(readFileSync(join(fixtures, 'dsh-host-manifest.json'), 'utf8'))
 const { readAsarEntry } = await import(pathToFileURL(join(distDir, 'health.js')).href)
 
+/** Read/write real bytes of an archive file even under Electron's asar fs
+ *  wrapper, which virtualizes every `.asar` path for reads AND writes. */
+const rawFs = (() => {
+  if (process.versions.electron !== undefined) {
+    try {
+      const ofs = process.getBuiltinModule('original-fs')
+      if (ofs?.readFileSync && ofs?.writeFileSync) return ofs
+    } catch { /* fall through */ }
+  }
+  return { readFileSync, writeFileSync }
+})()
+const archiveBytes = (path) => rawFs.readFileSync(path)
+
 const archive = join(fixtures, 'desktop-app.asar')
 const ENTRY = 'dsh/node_modules/@deepseek-ai/dsh-web-app/presets/standard.patch.yml'
+const ENTRY_FLAT = 'node_modules/@deepseek-ai/dsh-web-app/presets/standard.patch.yml'
 const oldest = manifest.hosts[0]
 const newest = manifest.hosts[manifest.hosts.length - 1]
 
-await report.check('the committed desktop archive yields the newest host standard', () => {
-  const text = readAsarEntry(archive, ENTRY)
-  assert.ok(text !== null, 'the fixture archive must carry the host standard')
+await report.check('the committed desktop archive yields the newest host standard in both layouts', () => {
   // The archive bytes are immutable LF; the fixture is pinned eol=lf but a
   // hand-copied checkout could still carry CRLF, so compare content, not bytes.
   const norm = (t) => t.replace(/\r\n/g, '\n')
   const expected = readFileSync(join(fixtures, newest.standard.fixture), 'utf8')
-  assert.equal(norm(text), norm(expected), 'archive content must match the manifest standard')
-  assert.equal(createHash('sha256').update(norm(text), 'utf8').digest('hex'), newest.standard.sha256)
+  for (const entry of [ENTRY, ENTRY_FLAT]) {
+    const text = readAsarEntry(archive, entry)
+    assert.ok(text !== null, `the fixture archive must carry the host standard at ${entry}`)
+    assert.equal(norm(text), norm(expected), 'archive content must match the manifest standard')
+    assert.equal(createHash('sha256').update(norm(text), 'utf8').digest('hex'), newest.standard.sha256)
+  }
 })
 
 await report.check('wrong-shape, foreign and truncated archives read as null', () => {
@@ -50,7 +69,7 @@ await report.check('wrong-shape, foreign and truncated archives read as null', (
   const home = mkdtempSync(join(tmpdir(), 'helmd-asar-'))
   try {
     const cut = join(home, 'cut.asar')
-    writeFileSync(cut, readFileSync(archive).slice(0, 40), 'utf8')
+    rawFs.writeFileSync(cut, archiveBytes(archive).slice(0, 40))
     assert.equal(readAsarEntry(cut, ENTRY), null, 'a truncated header is null')
   } finally {
     rmSync(home, { recursive: true, force: true })
@@ -65,9 +84,9 @@ await report.check('an unpacked entry is read from the app.asar.unpacked sibling
     const json = JSON.stringify({ files: { 'a.txt': { size: 5, offset: '0', unpacked: true } } })
     const frame = Buffer.from([4, 0, 0, 0, 0x8c, 1, 0, 0, 0x88, 1, 0, 0, 0x82, 1, 0, 0])
     const arc = join(home, 'x.asar')
-    writeFileSync(arc, Buffer.concat([frame, Buffer.from(json)]))
+    rawFs.writeFileSync(arc, Buffer.concat([frame, Buffer.from(json)]))
     mkdirSync(join(home, 'x.asar.unpacked'), { recursive: true })
-    writeFileSync(join(home, 'x.asar.unpacked', 'a.txt'), 'hello', 'utf8')
+    rawFs.writeFileSync(join(home, 'x.asar.unpacked', 'a.txt'), 'hello', 'utf8')
     assert.equal(readAsarEntry(arc, 'a.txt'), 'hello')
   } finally {
     rmSync(home, { recursive: true, force: true })
@@ -93,7 +112,8 @@ try {
 
   await report.check('a pinned desktop archive drives locate + repair end to end', () => {
     const base = seam.health.evaluateHealth()
-    assert.equal(base.hostPath, `${archive}!${ENTRY}`, 'the located host must display as archive!entry')
+    // Newest layout first: the flat DSH NEXT entry wins over the legacy dsh/ one.
+    assert.equal(base.hostPath, `${archive}!${ENTRY_FLAT}`, 'the located host must display as archive!entry')
     assert.equal(base.hostFingerprint, newest.standard.sha256.slice(0, 12))
     assert.match(base.autoHeal, /^healed \(HOST_UPGRADED → OK\)/, `unexpected verdict: ${base.autoHeal}`)
     const healed = readFileSync(patchPath, 'utf8')

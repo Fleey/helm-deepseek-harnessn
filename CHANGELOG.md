@@ -4,6 +4,27 @@
 完整发布注记与资产见 [GitHub Releases](https://github.com/ADWMC/helm-d/releases)。
 官方QQ群：**213266664**
 
+## [0.6.0-fork.2] — 2026-11-17（fork：适配 DSH 0.2.2-rc.2–rc.4 / DSH NEXT 2.0.23-next）
+
+### 宿主区间扩展
+
+- **受支持区间扩至 `0.2.0-rc.1` – `0.2.2-rc.4`**（18 个已发布版本）。manifest 追加 rc.2/rc.3/rc.4 三条 host 记录（npm `next` 通道；`latest` 仍指 rc.1）：三者 standard 与 token 契约逐字节相同（standard `e40bb192ed3b…`、token `2de0190ed0a3…`），rc.3 已对装机 DSH NEXT 2.0.23-next 桌面树核验一致。新增 fixture：`host-standard-e40bb192ed3b.patch.yml`、`host-tokens-2de0190ed0a3.css`（583 条声明，npm rc.2/rc.4 frontend+theme 推导并与装机 rc.3 比对相等）。
+- **peer 范围无需改动**：现有元组分段 `>=0.2.2-alpha.2 <0.2.3-0` 在两种 semver 语义下均已准入 rc.2/rc.3/rc.4；cordis `~4.1.0` / schemastery `~3.19.0` 与 rc.1 代相同。`peer-range` 检查按 18 宿主逐版回归通过。
+
+### 破坏性变更适配（rc.1 → rc.2+）
+
+- **桌面 asar 新布局**：DSH NEXT 2.0.23+ 的 CLI 包即归档根，standard 移到 `app.asar/node_modules/@deepseek-ai/dsh-web-app/presets/…`（扁平，无 `dsh/` 前缀）。`DESKTOP_ASAR_ENTRIES`（gen-preset 两份镜像 + health.ts）新增扁平条目并置首；`desktopAsarCandidates()` 增补 DSH NEXT / DSH Desktop / dsh-desktop-next 安装根（macOS `/Applications` 与 `~/Applications`、Windows `%LOCALAPPDATA%\Programs`、Linux `/opt`）。
+- **Electron 进程内 asar 读取修复**：RunAsNode 下 `node:fs` 把一切含 `.asar` 的路径虚拟化——读归档本体报 ENOENT、写截断样本报 Invalid package。`readAsarEntry()` 的归档字节与 `.unpacked` 兄弟文件改经 `original-fs`（`process.getBuiltinModule('original-fs')`，普通 Node 回退 `node:fs`）；`host-asar` 检查的样本读写同样处理。此前健康自愈在桌面进程内对归档宿主完全失效（定位不到 → UNKNOWN），现恢复。
+- **Team 包改名 + 配置收紧**：`dsh-experimental-agent-team` / `dsh-experimental-tool-agent-team` → `dsh-agent-team` / `dsh-tool-agent-team`（dsh-base 自 rc.2 起在宿主根直挂两行，旧 experimental bundle 退役）；新服务对 `maxMembers` 等旧键直接抛 `TEAM_INVALID_CONFIG`。preset 两行改稳定名、删除 `config.maxMembers`；让位条件升级为「解析探测（`baseUrl` + `createRequire`，宿主 skill-filesystem 行同款）不可解析 → stand down；宿主根已运行任一拼写 → stand down」。旧区间宿主（rc.1 及以前）上两行自动 stand down，helmd 自有 team_* 工具协议不受影响。`name` 保持字面量（preset registry 校验 `name` 必须为字符串，`!!js` name 不可行）。
+- **subagent steer API 改名**：`steerPrompt(parent, childId, content, source, signal)` → `sendMessage(sender, targetId, content, { signal })`。新增 `steerWorker()` 统一投递（先 `sendMessage` 后 `steerPrompt` 回退），`team_steer` 工具与 `/api/helmd/team` steer 路由同改；无任一 API 的宿主报可读错误。`team.check` 新增旧 API 回退与双缺失两条断言。
+- **其余 rc.1→rc.4 升级指南项逐一核对无影响**：helmd 不替换 `Session.append`、不用 Forge/Office/CUA/schedule 客户端 API、不依赖全局 no-drag（工作台浮层在 `headerActions` 的 `no-drag` CSS 区内）、`llm/stream` waterfall 与 `systemPrompt.section/context/getSectionOrder`、`tools.register/get/schemas`、`subprocess.spawn/resolveExecutable`、`fs.resolve/readText`、`session.snapshotEvents`、`agents.get`、`webServer.register`、client slots 四个注入位均在装机 rc.3 源码核验存在且形状兼容。
+
+### 检查与验证
+
+- **检查集 40 全绿（Electron RunAsNode，含装机宿主 seam 层）**：`session-log` / `bootstrap-anchor` / `prompt-assembly` / `preset-heal` 等直接跑在装机 rc.3 的 `dsh-session` 上；`ui-tokens` 装机层新增桌面 asar 探测，26 个 `--dsw` token 对装机 rc.3 CSS 全部有定义；`preset-heal` 的 shipped-patch 断言对装机宿主 OK。普通 node 下同样 40 PASS（装机 seam 层按既有设计 skip）。
+- `host-asar` fixture 归档以官方 `@electron/asar` 4.3.1 重打，同时携带新旧两种布局条目；`team-rows` 新增旧 experimental bundle 让位、无稳定包 stand down、无 maxMembers 三组断言；`preset-cross-host` 覆盖 8 份唯一 standard 的生成与循环跨宿主自愈。
+- **未验证**：运行时冷启动未在 18 个宿主上一一执行；重启后首请求 `[bash, read]` 护栏断言需操作者在装机宿主手跑（MAINTENANCE §8）。
+
 ## [0.6.0-fork.1] — 2026-11-11（fork：合并上游 v0.6.0 — DSH 0.2.0-rc.1–0.2.2-rc.1 区间全版本适配 + 桌面 app.asar 自愈）
 
 ### 合并
