@@ -7,7 +7,6 @@ import { requestText } from '../net-fetch.js'
 import { getCase, saveEvidence } from '../case.js'
 import { ReconLimiter, checkReconTarget } from '../recon.js'
 import { classifyPoc, recipeById, renderPocRequest, type PocRequest } from '../poc.js'
-import { loadSettings } from '../settings.js'
 import { pollOob, startOob, stopOob } from '../oob.js'
 
 interface ExecLike { agent?: { id?: string } }
@@ -28,13 +27,14 @@ function parseHeaders(raw?: string): Record<string, string> | undefined {
   return Object.fromEntries(Object.entries(parsed as Record<string, unknown>).map(([key, value]) => [key, String(value)]))
 }
 
-async function send(url: string, request: PocRequest): Promise<{ status: number; text: string }> {
+async function send(url: string, request: PocRequest, scope: string[], lab: boolean): Promise<{ status: number; text: string }> {
   await limiter.acquire(new URL(url).hostname)
   try {
     const response = await requestText(url, {
       method: request.method,
       headers: request.headers ?? {},
       ...(request.body !== undefined ? { body: request.body } : {}),
+      redirectGuard: (next) => checkReconTarget(next.hostname, scope, lab).ok,
     })
     return { status: response.status, text: response.text.slice(0, 256 * 1024) }
   } finally {
@@ -47,7 +47,7 @@ export function registerPocTools(ctx: Context): void {
     name: 'run_poc',
     description:
       'Run a deterministic PoC recipe against one in-scope URL: positive request + independent negative control, ' +
-      'then verdict verified/refuted/inconclusive. Safe recipes only unless team.riskApproval=allow. ' +
+      'then verdict verified/refuted/inconclusive. Safe recipes only. ' +
       'Both raw responses are saved as evidence; cite them in record_finding.',
     parameters: {
       recipe: { type: 'string', required: true, description: 'http-diff | sqli-boolean | path-traversal | idor | xss-canary | jwt-none | state-change' },
@@ -78,8 +78,8 @@ export function registerPocTools(ctx: Context): void {
       if (active === undefined) throw new Error('no active case; begin_case(scope=[...]) first')
       const recipe = recipeById(args.recipe)
       if (recipe === undefined) throw new Error(`unknown PoC recipe: ${args.recipe}`)
-      if (!recipe.safe && loadSettings().team.riskApproval !== 'allow') {
-        throw new Error(`recipe ${recipe.id} is state-changing; set team.riskApproval=allow or use a safe recipe`)
+      if (!recipe.safe) {
+        throw new Error(`recipe ${recipe.id} is state-changing; use a safe recipe (read-only recipes only)`)
       }
       const url = args.url.trim()
       const host = new URL(url).hostname
@@ -94,8 +94,8 @@ export function registerPocTools(ctx: Context): void {
         ...(args.negative_headers !== undefined ? { headers: parseHeaders(args.negative_headers) } : {}),
         ...(args.negative_body !== undefined ? { body: args.negative_body } : {}),
       })
-      const positive = await send(withSuffix(url, args.positive_suffix), positiveRequest)
-      const negative = await send(withSuffix(url, args.negative_suffix), negativeRequest)
+      const positive = await send(withSuffix(url, args.positive_suffix), positiveRequest, active.scope ?? [], args.lab === true)
+      const negative = await send(withSuffix(url, args.negative_suffix), negativeRequest, active.scope ?? [], args.lab === true)
       const positiveHit = marker.test(positive.text)
       const negativeHit = marker.test(negative.text)
       const verdict = classifyPoc(positiveHit, negativeHit)

@@ -4,6 +4,40 @@
 完整发布注记与资产见 [GitHub Releases](https://github.com/ADWMC/helm-d/releases)。
 官方QQ群：**213266664**
 
+## [0.7.0-fork.1] — 2026-11-27（fork：合并上游 v0.7.0 — 工具清洗 + Team 移除 + DSH 0.2.2-rc.5 / 0.2.3-alpha 兼容）
+
+### 合并
+
+- **上游 v0.7.0 全量并入**（ADWMC/helm-d tag `v0.7.0`，commit `7ad8ea3`，5 个提交 / 139 个文件）：DSH `0.2.2-rc.5` 与 `0.2.3-alpha.1/.2` peer 分段（`packages/helmd` 的 settings/tools peer 上界由 `<0.2.3-0` 扩至 `>=0.2.3-alpha.1 <0.2.3-alpha.3`）、manifest 18 → 21 个宿主样本、references 引导链修复（persona WORKFLOW 条款、`ROUTE_REF` 首读映射、`reference-preview` / `armReferenceGuidance`）、finding 证据核对（`assessFindings`）、桌面归档**自锚定**（`process.execPath` / `process.resourcesPath` 优先）、传输层加固（http(s) 协议白名单、逐跳 `redirectGuard`、跨源重定向剥离认证头、拒绝 HTTPS→HTTP 降级、loopback 不走代理、http 代理隧道用 HTTP agent）、工作台 UX 修复（API 失败横幅、拦截历史、SettingsNumber 可清空等）
+- **跟随上游移除 Team 与领域执行工具**：`team*.ts`、`tools/team.ts`、`/api/helmd/team*` 与 `/approvals` 路由、`Config.team`、preset 内两行 Agent Teams（含 fork.2 为 rc.2+ 做的稳定包名适配 `TEAM_*` / `hostResolves` / `hostRunsPlugin`）一并删除；运行时不再注册领域分析器与 recon/PoC/OOB/mining（源码留仓作回归，不随包发布——`build-sealed` 只封两个入口的静态依赖闭包，并对可达的退役工具报错）。**工具数 49 → 14**（mock-ctx 实测：路由/知识 4 + Case 生命周期/假设 8 + toolbox 2）
+- **fork 侧保留**：五档破甲（`core` 主档 + `stealth` / `redteam-max` / `ds4.1f` 别名 / `gpt-6x`）与 boost 尾块、零构建根安装体系（根 shim / `sync-root-shim` / `sync-root-seal` / `root-heal` / `root-shim` / `seal-install` 检查）、按挂载包名判定的启动自愈（`mountedPackageName()`）、会话标签栏工作台视图与 `TabErrorBoundary`、无 star gate（`persona.ts` 替代 `gate.ts`，`net-fetch.ts` 承载传输层）
+- **合并裁决**：
+  - `net-fetch.ts` = 上游 v0.7.0 `star-gate.ts` 的代理解析 + 传输层**逐字节一致**（仅 `user-agent` 为 `helmd`），不含设备流
+  - `core.md` = 上游 v0.7.0 `ds4.1f.md` **逐字节一致**（上游只改了 WORKFLOW 段；fork 的「同源同文」承诺继续成立），`ds4.1f.md` 仍为 `extends: core` 别名
+  - `desktopAsarCandidates()`：自锚定（上游）优先，其后是 fork 的 DSH NEXT / DSH Desktop 默认根（扁平 asar 布局探测时先于老 `dsh/` 布局）
+  - `host-asar` fixture 保留 fork 的双布局归档（嵌套 + 扁平，内容同上游 rc.5 的 `e40bb192ed3b`），自锚定用例断言落到扁平入口
+  - `tool-catalog` 断言并入 fork 的「`find_tool` / `llm_probe` / `llm_eval_suite` / `helmd_unlock` 保持未注册」，并补上上游遗漏的 `record_hypothesis` / `update_hypothesis`
+  - `bootstrap-anchor` 上游新增用例的期望值按实现语义修正：过滤器保持**宿主 catalog 顺序**（`tools.filter`），不按配置重排——上游断言只在它的测试数据顺序下成立，且未在真宿主上跑过（系统 node 下 SKIP）
+  - `host-asar` 自锚定用例改经 `original-fs` 读归档字节（Electron 下 `copyFileSync` 读的是虚拟目录，ENOENT）
+  - `recon-poc-mining` 两处传输层 import 指向 `net-fetch.js`
+- **文档**：README / README.en 的破甲档位由「四档」更正为 fork 实际的五档（`0.5.3-fork.8` 起即五档，README 此前未同步）；MAINTENANCE 架构表工具数由 49 更正为 14、工作台 tab 去掉 Team；AGENTS §12 单一事实源指向 `core.md`
+
+### 重新封印
+
+`tsc` → `build-profiles`（5 档 + boost）→ `build-sealed`：`payload.dat` **109 文件**（fork.2 为 251——领域分析器不再入包）/ `references.dat` 365 文件 / `profiles.dat` 5 档；`preset.generated.patch.yml` 由本机桌面宿主重新生成（指纹 `e40bb192ed3b…`，与上游 v0.7.0 快照逐字节一致）；根 shim + 密封产物经 `sync-root-shim` / `sync-root-seal` 重铺（四个 blob 与子包逐字节一致）。
+
+### 版本
+
+`0.6.0-fork.2` → `0.7.0-fork.1`（根 + `packages/helmd`）。
+
+### 验证
+
+- `pnpm install --frozen-lockfile`：lockfile 无变化 · `pnpm build`：11 包 PASS · `pnpm typecheck`：PASS
+- `pnpm test:checks`（45 个）：**Electron RunAsNode 通道 45/45 PASS、0 SKIP**（DSH NEXT 2.0.24-next 桌面宿主，Electron 44.7.0 / Node 24.21.0，host-seam 层实跑）；系统 node v22.12 通道 38 PASS + 7 SKIP（SKIP 集合 = 需要 fs 可见 dsh 的 7 个，与上游同机行为一致）
+- `gen-preset --check` OK：定位到 `DSH NEXT.app/…/app.asar!node_modules/@deepseek-ai/dsh-web-app/presets/standard.patch.yml`（扁平布局）
+- 密封安装态端到端：根 stub 自解压（170 文件）→ `dist/index.js` 注册 14 工具；`evaluateHealth()` 对本机桌面宿主 `status: OK`
+- **未验证**：`0.2.3-alpha.1/.2` 宿主真实冷启动（上游同样未验证；alpha.2 要求 Node 24.22.3+，本机 Node 24.21.0 不满足）；重启后首请求 `[bash, read, route_task, read_reference]` 护栏断言需操作者在装机宿主手跑（MAINTENANCE §8）
+
 ## [0.6.0-fork.2] — 2026-11-17（fork：适配 DSH 0.2.2-rc.2–rc.4 / DSH NEXT 2.0.23-next）
 
 ### 宿主区间扩展
@@ -34,6 +68,60 @@
 - **合并裁决**：`locateHostStandard()` 先探测 asar 归档（上游新能力），再回退 fork 的解包目录探测（老布局）；`artifactVerdict` 同时采用上游的 `readHostStandardText`（可读 asar 内 standard）与 fork 的 `mountedPackageName()`（根安装不判 STALE）；`gen-preset` 保留 fork 的 `TEAM_TOOLS_ON_HOST` / `TEAM_SERVICE_ON_HOST` helper 并补上游 asar 探测；`preset-heal` 检查采用上游「tracked 产物必须原样幸存」断言
 - **重新封印**：`tsc` → `build-profiles`（5 档）→ `build-sealed`（payload 251 文件 / references 365 文件）→ 根 shim 与密封产物待 `sync-root-shim` + `sync-root-seal` 重铺
 - **版本**：`0.5.3-fork.10` → `0.6.0-fork.1`（根 + packages/helmd）；peer 范围采用上游元组分段（放行 0.2.0–0.2.2 区间全部预发布）
+
+## [Unreleased]
+
+## [0.7.0] — 2026-11-24（工具清洗、双域自主与新版 DSH 兼容）
+
+### 升级前必读
+
+- 主插件运行时精简至 14 个编排工具；内置逆向分析、Web 侦察、PoC、候选挖掘、OOB 与分域参考重复入口均不再注册，独立 `skill-*` 包的专业分析入口也已撤下。领域操作改由外部专业工具通过宿主执行，再用 `save_evidence` 保存原始输出；手工导入是模型提供的数据，不是独立认证的执行记录。旧模块/脚本源码仍在仓库，不随主包发布。
+- Case 工作台展示 finding 的证据摘录核对、置信依据及缺失/过期状态；引文匹配仅证明已保存材料的出处，不能证明漏洞可利用。逆向与渗透分别有下一步建议，建议不是后台自治执行器。
+
+### 新版 dsh 宿主兼容
+
+- 补齐 0.2.2-rc.5 与 0.2.3-alpha.1/.2 的 Cordis、Schemastery、settings/tools peer 范围；从发布包补入新版宿主 preset 与 UI token 契约，回归 preset 生成/修复。alpha.2 需 Node 24.22.3+ 或 26.13.1+；真实宿主冷启动尚未验证。
+
+### 路由、证据与网络边界修复
+
+- `route_task` 过滤否定任务信号并给出实际首步工具；JVM/Frida 任务进入首读预览。文档分页全部返回后才签发可恢复的阅读回执，finding 校验当前路由文档。
+- 失败输出及管理/建议回执不再成为分析证据；Case 按最近打开恢复时保留 scope，按名称恢复时限制在 Case 根目录。手工导入的原始外部输出可作为候选结论的材料，但不被当成已认证的分析执行。
+- 历史 recon/PoC 模块曾补全重定向后的 scope 核对、跨来源认证头隔离及 IPv4/IPv6 CIDR 支持；这些入口现已撤下，不属于本版可调用工具。
+
+### 保护样本分流（开发中）
+
+- 修复知识主动调用链：首轮暴露路由和阅读工具，逆向任务提示层给有限首读预览；成功读取回执与路由指定文档的采纳统计分离，报告门禁不再接受只调用未成功的文档工具。独立 legacy skill-native 只保留资料读取入口；当前 release 仍只打主包。
+
+- `protection_route` / `detect_packer` 的历史逻辑仅供仓库回归，运行时入口已撤下；逆向参考强调区分静态目标、局部 VM、写后执行与观测器故障。Case 核心限制保护 finding 晋升并允许 deep 模式如实未解结束；不包含自动解密或已验证的动态执行闭环。
+- 同步逆向 playbook、保护器速查、IDA/Frida 动态卡、Android DEX 卡及 TUSI 案例边界：移除签名即操作、工具固定优先级与单次 hook 绝对可靠的指导；修正旧 `create_case` 引用并重建参考索引。
+
+### 兼容性
+
+- **DSH 0.2.2-rc.2–rc.5**：npm 实测四版本同元组（cordis ~4.1.0 / schemastery ~3.19.0）、standard.patch.yml 字节一致（sha256 e40bb192ed3b…）、token 契约一致；原有 manifest 的 19 个宿主样本现扩至 21 个，另含 0.2.3-alpha.1/.2；更高版本未纳入。
+- **桌面宿主定位修复**（来自远端 0c3a387）：desktopAsarCandidates()（health.ts 与两份 gen-preset.mjs 镜像）新增 process.execPath / process.resourcesPath 自锚定候选，修复自定义安装路径下 status UNKNOWN、preset 自愈从不发生。
+
+### 移除
+
+- **Team 功能整体移除**：删除 5 个模型工具（team_create / team_dispatch / team_status / team_report / team_steer）、ticket/进化/审批三层实现（team.ts / team-worker.ts / team-eval.ts / team-policy.ts / team-context.ts / approval.ts）、工作台 Team tab、/api/helmd/team* 与 /api/helmd/approvals 路由、team:eval 脚本、preset 的 tool-agent-team / helmd-agent-team 两行（含远端 0c3a387 加的按宿主代选包名逻辑）、settings.team 配置组。工具数 49 → 44；工作台 7 tab → 6 tab。动机：两轮审查证实进化层/审批层从未被使用（versions.json 不存在、approvals.json 恒空）、ticket 无收尾闭环、handoff 前后端均未接线——维护成本大于价值。
+
+### 修复（UX 审查）
+
+- **saveSettings 合并丢 toolbox 键**：merged 对象遗漏第五键 toolbox，任何设置保存都会把 toolbox.modelInstall=true 静默重置为 false；补齐 merge 并新增回归断言。
+- **工作台 12 个 API 静默吞错**：poll() 的 fetch 全部 .catch(()=>null)，后端不可达时 UI 无提示显示空/陈旧数据；现统计失败数并渲染错误横幅（完全不可达保留旧数据并提示过期）。
+- **Case tab 导出入口**：报告（markdown）与 SARIF 2.1.0 导出端点早已存在但无 UI 入口；case 卡头部新增两个链接。
+- **拦截 Tab 历史**：原来只渲染 4 行硬编码内容；getInterceptStats 现从日志解析最近 20 条拦截记录（时间/阶段/模型/摘录），前端逐条渲染。
+- **SettingsNumber 无法清空**：受控 input 在删除时 Number()=NaN 强制回落最小值；改为本地文本 state，仅合法数值提交。
+- **About 过时摘要**：离线 fallback 更新日志写着工具数 33 / 4 tab（v0.4 时代）；改为明确的拉取失败提示加当前能力概览。
+- **finding triage 静默降级**：无 sessionId 时 patchFinding 直接 return，按钮点了没反应；现经面板级 notice 提示原因。
+- **finding detail 截断**：240 字截断无展开；超长 detail 现可展开/收起。
+- **asset select 反模式**：choice.assets[0].name 直接变异对象且 select 不受控；改为独立 pickedAsset state。
+- **Star gate retryAt 渲染**：后端返回退避时间但前端只显示稍后自动重试；现渲染将于 m:ss 后自动重试。
+- **中英混杂清理**：空态英文残留（Adjusted filter / Open hypotheses / Open right sidebar）改为中文。
+- **历史 run_poc 描述**：移除已失效的 team.riskApproval 引用；该工具随后从注册目录下线。
+
+### 修复（references 引导链）
+
+- **知识库引导链五层修复**：ledger 实测 route:* 建议采纳率 5%。persona WORKFLOW 加知识库条款（profiles.dat 重建）、skill_catalog/read_reference/route_task 描述加触发子、ROUTE_REF 18 路由→首读文档映射 + 卡片 FIRST 行、armReferenceGuidance（ref:read-first，闲置的 reference_read proof 首个生产者）、persist 领域工具输出后的 ref reminder 尾注。
 
 > **版本编号说明**（2026-11-06 补记）：
 > - 版本号唯一事实源是 `packages/helmd/package.json`，tag 必须等于 `v<合法 SemVer>`。

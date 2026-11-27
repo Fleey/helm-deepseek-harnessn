@@ -32,13 +32,14 @@ const report = createReporter('api-routes')
 
 const ROUTE_BASE = '/api/helmd'
 // fork: no gate family — the star gate is gone; /update hits the network so it is
-// asserted registered but not called. v0.5.3 adds the team / settings / toolbox /
-// recon-side routes (approvals, case/sarif, case/report, tools/catalog, …).
+// asserted registered but not called. 0.7.0 removed the team / approvals routes
+// together with the team feature, so only the workbench + toolbox + case
+// projections remain.
 const ROUTES = [
   'tools', 'intercept', 'profile', 'update',
-  'settings', 'approvals', 'team', 'team/versions',
+  'settings',
   'tools/catalog', 'tools/update', 'tools/mirror', 'tools/install', 'tools/uninstall', 'tools/releases',
-  'case/sarif', 'case/report',
+  'case', 'case/sarif', 'case/report',
 ]
 
 /** Registry contents, reachable only through register/schemas — no layer internals. */
@@ -53,20 +54,6 @@ const services = {
   },
   settings: { register: () => {} },
   webServer: { register: () => {} },
-  // Host seams the v0.5.3 team routes need: session registry + in-process
-  // subagent spawn provider (the worker adapter starts a child Agent here).
-  agents: { get: (id) => ({ id }) },
-  subagents: {
-    getProvider: (name) => ({ name }),
-    startActivation: async () => ({
-      childId: 'sess-api-worker',
-      result: Promise.resolve({
-        stopReason: 'completed',
-        output: [{ type: 'text', text: '{"state":"ready","summary":"api worker","evidenceIds":["E-001"],"repro":"file sample"}' }],
-      }),
-      dispose: async () => {},
-    }),
-  },
 }
 
 const routes = new Map()
@@ -83,8 +70,6 @@ function makeContext(grants) {
     get(_target, prop) {
       if (prop === 'inject') return (deps, cb) => cb(makeContext([...grants, ...deps]))
       if (prop === 'on' || prop === 'emit') return () => {}
-      // Service reads go through ctx.get(name) (dsh service registry), not
-      // property access — service() in team-worker.ts uses this path.
       if (prop === 'get') return (name) => services[name]
       if (typeof prop === 'string' && Object.hasOwn(services, prop)) {
         if (!grants.includes(prop)) throw new Error(`cannot get property "${prop}" without inject`)
@@ -243,51 +228,14 @@ await report.check('GET /case/findings follows the same session binding', async 
   assert.deepEqual(other.payload.data, [])
 })
 
-await report.check('POST /team creates a local analysis ticket', async () => {
-  const created = await post(`${ROUTE_BASE}/team`, {
-    action: 'create',
-    goal: 'api team ticket',
-    caseDir: join(process.env.HELMD_CASES_DIR, 'team-case'),
-    roles: ['triage', 'static', 'critic', 'reporter'],
-  })
-  assert.equal(created.status, 200, `got ${created.status}: ${created.payload?.error ?? ''}`)
-  assert.equal(created.payload.data.state, 'open')
-  const listed = await call(`${ROUTE_BASE}/team`)
-  assert.ok(listed.payload.data.tickets.some((ticket) => ticket.goal === 'api team ticket'))
-})
-
-await report.check('POST /team starts a local worker and records its report', async () => {
-  const created = await post(`${ROUTE_BASE}/team`, {
-    action: 'create',
-    goal: 'api worker ticket',
-    caseDir: join(process.env.HELMD_CASES_DIR, 'api-worker-case'),
-    roles: ['triage'],
-  })
-  assert.equal(created.status, 200, created.payload?.error ?? '')
-  const started = await post(`${ROUTE_BASE}/team`, {
-    action: 'start',
-    ticketId: created.payload.data.id,
-    role: 'triage',
-    parentSessionId: 'sess-api',
-  })
-  assert.equal(started.status, 200, started.payload?.error ?? '')
-  assert.equal(started.payload.data.sessionId, 'sess-api-worker')
-  await new Promise((resolve) => setTimeout(resolve, 20))
-  const listed = await call(`${ROUTE_BASE}/team`)
-  const ticket = listed.payload.data.tickets.find((item) => item.id === created.payload.data.id)
-  assert.equal(ticket.roles[0].sessionId, 'sess-api-worker')
-  assert.equal(ticket.reports.at(-1).summary, 'api worker')
-  assert.equal(ticket.reports.at(-1).source, 'worker')
-})
-
 await report.check('GET/POST /settings round-trips and clamps through the store', async () => {
   const initial = await call(`${ROUTE_BASE}/settings`)
   assert.equal(initial.status, 200)
   assert.equal(initial.payload.data.intercept.enabled, true)
-  const saved = await post(`${ROUTE_BASE}/settings`, { star: { popupDelaySec: 9 }, team: { maxParallelWorkers: 2 } })
+  const saved = await post(`${ROUTE_BASE}/settings`, { star: { popupDelaySec: 9 }, advisory: { nextActionNudge: false } })
   assert.equal(saved.status, 200)
   assert.equal(saved.payload.data.star.popupDelaySec, 9)
-  assert.equal(saved.payload.data.team.maxParallelWorkers, 2)
+  assert.equal(saved.payload.data.advisory.nextActionNudge, false)
   assert.equal(saved.payload.data.intercept.enabled, true, 'untouched group survives the patch')
   const onDisk = JSON.parse(readFileSync(join(process.env.DSH_HOME, 'storages', 'helmd', 'settings.json'), 'utf8'))
   assert.equal(onDisk.star.popupDelaySec, 9)
@@ -307,6 +255,20 @@ await report.check('POST /case/findings updates triage and rejects invalid statu
   assert.match(rejected.payload.error, /unknown finding status/)
   const missing = await post(`${ROUTE_BASE}/case/findings`, { sessionId: 'sess-api', id: 'F-999', status: 'verified' })
   assert.equal(missing.status, 404)
+})
+
+await report.check('workbench API cannot promote a protection candidate through the core registry', async () => {
+  writeFileSync(join(caseDir, 'findings.json'), JSON.stringify([{
+    id: 'F-002', title: 'UPX unpacked image', detail: 'unverified', severity: 'info', status: 'candidate',
+    confidence: 'unverified', vulnClass: 'packer', evidence: 'E-001', evidenceIds: ['E-001'],
+    repro: 'cmd', seenCount: 1, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(),
+  }], null, 2))
+  const result = await post(`${ROUTE_BASE}/case/findings`, { sessionId: 'sess-api', id: 'F-002', status: 'verified' })
+  assert.equal(result.status, 400)
+  assert.match(result.payload.error, /independent verifier/)
+  const current = await call(`${ROUTE_BASE}/case/findings`, { url: `${ROUTE_BASE}/case/findings?sessionId=sess-api` })
+  assert.equal(current.payload.data[0].status, 'candidate')
+  assert.equal(current.payload.data[0].assessment.evidenceCheck, 'mismatch', 'API exposes missing evidence instead of claiming verification')
 })
 
 await report.check('GET /case/sarif and /case/report are deterministic projections', async () => {

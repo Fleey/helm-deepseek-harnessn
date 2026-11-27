@@ -15,7 +15,7 @@
 
 | 层 | 谁写入 | 内容 |
 |----|--------|------|
-| Profile | `dsh plugin add` / `update.ps1` | 49 个工具（router 4 + 案件生命周期 6 + 领域 23 + Team 5 + Toolbox 1 + Recon 5 + PoC 1 + OOB 3 + Mining 1）、bootstrap 收窄、运行时钩子层（tool-wash / persist / advisory / llm-stream）、references、scripts、工作台 UI |
+| Profile | `dsh plugin add` / `update.ps1` | 14 个工具（路由/知识 4 + Case 生命周期/假设 8 + toolbox 2）、bootstrap 收窄、运行时钩子层（tool-wash / persist / advisory / llm-stream）、references、scripts、工作台 UI |
 | Preset | 随包分发 `preset.generated.patch.yml`（宿主经 `dsh.bundle.patch` 读取） | 一行 `@deepseek-ai/dsh-agent-preset` 组合：luna persona、激活词 `helmd`、宿主全套工具行 + `@adwmc/helm-d/agent` |
 
 **单一事实源表**
@@ -27,19 +27,19 @@
 | 工具代码 | `packages/helmd/src/*.ts` | `pnpm build` → dist |
 | 依赖 cohort | `pnpm-workspace.yaml` `overrides`（编译期全家 + cordis + schemastery；与目标宿主同代，当前 `0.2.1-rc.2` / cordis `4.0.4` / schemastery `3.18.4`） | `pnpm install` → `pnpm-lock.yaml` + node_modules；`pnpm peers check` 必须无问题（跨 cohort peer = 迁移未完成）。宿主真实形状由 `pnpm test:checks` 的 host-seam 那几份直接跑在装机宿主包上把关，编译期 cohort 落后不会伪装成绿。钉宿主时留意 launcher 的 `^0.2.0-rc.N` 会让嵌套宿主包上浮一档，`dsh --version` 只反映 launcher。0.2 起 peer 必须按元组分段、每段带该元组最低预发布比较子（当前 `>=0.1.5-rc.1 <0.2.0-0 || >=0.2.0-rc.1 <0.2.1-0 || >=0.2.1-alpha.1 <0.2.2-0 || >=0.2.2-alpha.2 <0.2.3-0`）——plain node-semver 只有比较子与版本同 [major,minor,patch] 元组且带预发布时才准入预发布，宽范围会漏掉整个 0.2.1/0.2.2 预发布线；`dsh-code-runtime` 已改名为 `dsh-ptc-runtime` |
 | 领域文档 | `packages/helmd/references/` | 直接打包 |
-| 工作台 UI | `packages/helmd/client.js`（浏览器半，免构建）+ `cordis.patch.yml` 的 `dsh.client.inject` | 破甲、Case、Team、拦截、设置与关于数据走 `/api/helmd/*` HTTP 投影 |
+| 工作台 UI | `packages/helmd/client.js`（浏览器半，免构建）+ `cordis.patch.yml` 的 `dsh.client.inject` | 破甲、Case、工具、拦截、设置与关于（六个 tab；fork 另有会话标签栏 helmd 视图）数据走 `/api/helmd/*` HTTP 投影 |
 | 安装脚本 | 根目录 `install.{ps1,sh,bat}` | 随仓库分发（不进 tgz） |
 | 更新脚本 | `scripts/update.{ps1,sh}` | 仅仓库，随 git 分发 |
 
 > ⚠️ **禁止手改 `packages/helmd/preset.generated.patch.yml`**。平台行必须从当前宿主 `standard` 生成，否则 `pwsh`、`read` 等工具会缺失或在升级后漂移。两面的归属是分开的：host 面 `cordis.patch.yml` 挂**裸包名** `helm-d`（导出解析到 `dist/health.js`，只注册设置命名空间），agent 面主插件由 preset 末行的 `@adwmc/helm-d/agent` 声明（2026-09-11 起如此。此前 host 行写深路径 `helm-d/dist/health.js`，宿主 `client-modules` 的 `exactPackageSpecifier` 只认 `@scope/name` 两段，于是包的 `dsh.client` 从未被发现、设置卡片永远不出现——浏览器半边不是没跑，是没进模块图）。生成器内建断言：输出行集合 = 宿主 standard 行 + `helmd`、无重复 id、组合行已改写为 `preset-helmd` / `id: helmd`、声明 `@deepseek-ai/dsh-agent-preset`、persona 含激活词 `helmd online`、且 `helm-d` 恰好出现一次，违者构建即红。
 
-### 1.1 受支持宿主区间（`0.2.0-rc.1` – `0.2.2-rc.4` 全部已发布版本）
+### 1.1 宿主兼容样本（`0.2.0-rc.1` – `0.2.2-rc.5` 全部已发布版本，另含 `0.2.3-alpha.1/.2`）
 
-- **事实源**：`scripts/checks/fixtures/dsh-host-manifest.json`——区间内 18 个已发布版本逐一记录兄弟包钉版（dsh-web-app / dsh-settings / dsh-tools 与宿主锁步）、cordis/schemastery 的 pin 与 floor/resolved、`standard` 内容哈希与 fixture、前端 token 契约 fixture。新增 0.2.x 版本：追加 host 条目及其 fixture，检查无需改。`0.2.2-rc.2/rc.3/rc.4` 走 npm `next` 通道（`latest` 仍指 rc.1）；rc.3 已对装机 DSH NEXT 2.0.23-next 桌面树逐字节核验（standard 与 token 契约与 npm rc.2/rc.4 相同）。
-- **验证深度（如实）**：peer 准入（两种 semver 语义）、preset 生成与跨宿主自愈（8 份唯一 standard）、UI token（6 份唯一契约）、`defineTool` API 面均经区间全版本回归；host-seam 检查在装机 rc.3 桌面宿主上实跑（Electron RunAsNode）；运行时冷启动未在 18 个宿主上一一执行。
-- **编译期 cohort 保持 `0.2.1-rc.2`**：区间内插件 API 面（`defineTool` / cordis `Context` / schemastery）跨代稳定，编译期与运行时解耦；cohort 只影响类型与 lockfile，不构成运行时兼容面。rc.2+ 的两处运行时 API 变化已按双形状适配：subagent steer `steerPrompt` → `sendMessage(sender, targetId, content, { signal })`（`steerWorker()` 先新后旧），Team 包改名 `dsh-experimental-{agent-team,tool-agent-team}` → `dsh-{agent-team,tool-agent-team}` 且新服务拒绝 `maxMembers` 配置（preset 两行改稳定名 + 解析探测让位，旧宿主上自动 stand down，helmd 自有 team_* 工具不受影响）。
-- **桌面版（Electron）**：宿主树打包在 `resources/app.asar` 内，两种布局——DSH NEXT 2.0.23+（dsh 0.2.2-rc.2+）CLI 包即归档根，standard 在 `app.asar/node_modules/@deepseek-ai/dsh-web-app/presets/…`（扁平）；老 DeepSeek Harness 构建在 `app.asar/dsh/node_modules/…`（asarUnpack 只解原生模块），npm/PATH 探测都看不到。`locateHostStandard()` 先探桌面安装根（macOS `/Applications/DSH NEXT.app` 等、Windows `%LOCALAPPDATA%\Programs\dsh-desktop-next` 等、老 productName `DeepSeek Harness`；bundled CLI 所在 PATH 条目上溯三级），命中后以 `archive!entry` 形式返回并由零依赖 asar 读取器读取；`DSH_DESKTOP_APP_ASAR` 可显式钉一个归档。**Electron 进程内 `node:fs` 会把一切含 `.asar` 的路径虚拟化**（读归档本体报 ENOENT / Invalid package），归档字节一律经 `original-fs`（`process.getBuiltinModule`）读取，普通 Node 不受影响。失败不抛，按未定位处理。
-- **区间外**：`0.2.3-rc.1` / `0.3.0` 起显式排除（peer 上界 `<0.2.3-0`）；纳入新区间按同一流程扩 manifest 与 peer 分段。
+- **事实源**：`scripts/checks/fixtures/dsh-host-manifest.json`——21 个宿主样本逐一记录兄弟包钉版（dsh-web-app / dsh-settings / dsh-tools 与宿主锁步）、cordis/schemastery 的 pin 与 floor/resolved、`standard` 内容哈希与 fixture、前端 token 契约 fixture。新增宿主版本：追加 host 条目及其 fixture，检查无需改。fixture 取法：`standard` = 该版 `@deepseek-ai/dsh-web-app` 的 `presets/standard.patch.yml`（按 LF 文本 sha256 命名）；token 契约 = 该版 `dsh-web-frontend` 的 `dist/assets/*.css` 与 `dsh-client-ui-theme` 的 `lib/client.js` 里提取的 `--dsw-*: value` 去重排序，`tokens.sha256` 记的是这些源文本的哈希。
+- **验证深度（如实）**：peer 准入（两种 semver 语义）、preset 生成与跨宿主自愈（9 份唯一 standard）、UI token（7 份唯一契约）经样本回归；新版宿主真实冷启动未验证，不能把旧编译期 API 测试当作新版 API 实测。 fork 另在本机 DSH NEXT 2.0.23-next 桌面宿主（Electron RunAsNode）上实跑过 host-seam 层（0.6.0-fork.2，对应 rc.3 时期的桌面树）；0.7.0 合并后的桌面冷启动未重新实测。
+- **编译期 cohort 保持 `0.2.1-rc.2`**：区间内插件 API 面（`defineTool` / cordis `Context` / schemastery）跨代稳定，编译期与运行时解耦；cohort 只影响类型与 lockfile，不构成运行时兼容面。
+- **桌面版（Electron）**：宿主树打包在 `resources/app.asar` 内，两种布局——DSH NEXT 2.0.23+（dsh 0.2.2-rc.2+）CLI 包即归档根，standard 在 `app.asar/node_modules/@deepseek-ai/dsh-web-app/presets/…`（扁平，探测时优先）；老 DeepSeek Harness 构建在 `app.asar/dsh/node_modules/…`（asarUnpack 只解原生模块），npm/PATH 探测都看不到。`locateHostStandard()` 先探桌面归档：宿主自身可执行文件旁（`<dirname(process.execPath)>/resources/app.asar`，`ELECTRON_RUN_AS_NODE` 下 `process.execPath` 仍是打包后的 exe）与 Electron 的 `process.resourcesPath/app.asar` 优先，其后是 `%LOCALAPPDATA%\Programs\dsh-desktop-next`、`/Applications/DSH NEXT.app` 等 DSH NEXT / DSH Desktop 默认根与老 productName `DeepSeek Harness`，再到 bundled CLI 所在 PATH 条目上溯三级；命中后以 `archive!entry` 形式返回并由零依赖 asar 读取器读取；`DSH_DESKTOP_APP_ASAR` 可显式钉一个归档。**Electron 进程内 `node:fs` 会把一切含 `.asar` 的路径虚拟化**（读归档本体报 ENOENT / Invalid package），归档字节一律经 `original-fs`（`process.getBuiltinModule`）读取，普通 Node 不受影响。失败不抛，按未定位处理。自定义安装根（如 `D:\…`）靠自锚定即可命中，不需要手工 pin。
+- **新区间边界**：`0.2.3-alpha.3`、`0.2.3-rc.1` / `0.3.0` 起仍显式排除；alpha.2 要求宿主 Node `^24.22.3 || >=26.13.1`。新标准从发布包取得并校验 hash，独立桌面 asar 快照仍固定在 0.2.2-rc.5；新区间真实冷启动未验证。
 
 ## 2. 发布流程（checklist 式）
 
@@ -48,7 +48,7 @@
 git status --porcelain            # 必须干净
 
 # 0.5 检查（必须在封包前跑：build-sealed 会把 dist 移进 .real，检查只认明文 dist）
-pnpm test:checks                  # 必须 40 PASS（桌面机上用 Electron RunAsNode 跑可激活装机宿主 seam 层）
+pnpm test:checks                  # 基线 45 个：Electron RunAsNode 通道 45 PASS；系统 node 通道 38 PASS + 7 SKIP（需 fs 可见 dsh）；任何新增 SKIP 单独记录
 
 # 1. bump 版本号（唯一位置）
 node -e "const fs=require('fs');const p='packages/helmd/package.json';const pkg=JSON.parse(fs.readFileSync(p,'utf8'));pkg.version='X.Y.Z';fs.writeFileSync(p,JSON.stringify(pkg,null,2)+'\n')"
@@ -120,7 +120,7 @@ Invoke-WebRequest -Method Head "https://github.com/ADWMC/helm-d/releases/downloa
 - 描述里的**数字声明会被 reviewer 和 decay scan 对照代码核验**（工具数、版本号）。改了工具集必须同步：
   - README.md / README.en.md 的徽章行和目录树行
   - registry yml 的 en/zh description（需向上游提 PR）
-- 当前计数基准：49 个工具（router 4 + 案件生命周期 6（含 save_evidence、update_finding）+ 领域 23 + team 5（dispatch/create/status/report/steer）+ toolbox 1 + recon 5 + run_poc 1 + oob 3 + mine_candidates 1；create_case 已废弃）。核对方法：`pnpm test:checks` 里的 `tool-catalog` 检查——它读本行声明的数字与 mock-ctx 实际注册名比对，不一致即红（改工具集而忘了改文档会当场失败）。
+- 当前计数基准：14 个工具（路由/知识 4 + Case 生命周期/假设 8 + toolbox 2）。自写的领域执行器、主动侦察/PoC/OOB 和重复参考读取入口不再注册；专业分析通过外部工具执行，原始输出入 Case。`tool-catalog` 检查将本行数字与实际注册名核对。
 - fork `ADWMC/awesome-dsh-plugin`：PR 合并后即可删（`gh repo delete --yes`）；再提 PR 时重新 fork 即可
 
 ### 4.1 各商店收录台账（2026-09-14/15，v0.3.1）
@@ -197,7 +197,7 @@ PR #2708        已合并 (2026-08-23)
 - [ ] `pnpm test:checks` 全部绿（自动跑 `scripts/checks/*.check.mjs`；host seam 那几份直接跑在宿主真实 `dsh-session` 包上，宿主换访问器即红，不必等真机会话才暴露）
 - [ ] 手工验收脚本（不进 run-all，按需跑）：`node scripts/checks/session-timing.mjs`（解压 session.v3.jsonl.zstd 做 step/turn 耗时归因）
 - [ ] mock-ctx 工具数与 README/registry 一致（由 `pnpm test:checks` 的 `tool-catalog` 机械核对，无需手数）
-- [ ] `repack` 后 tgz 为 12 文件封印形态：`payload.dat` 内含 `.real/` 模块与 `scripts/**`（首次导入解压到包内 `scripts/`），不含 `presets/persona.txt`、`presets/profiles/`、明文 `scripts/`；含 `preset.generated.patch.yml` + `presets/preset.yml` + `presets/profiles.dat`，且**不再**含任何 `agent.cordis.yml`
+- [ ] `repack` 后 tgz 为 12 文件封印形态：`payload.dat` 仅含运行时 `.real/` 模块与预设/安装脚本（不含旧领域工具或领域脚本），不含 `presets/persona.txt`、`presets/profiles/`、明文 `scripts/`；含 `preset.generated.patch.yml` + `presets/preset.yml` + `presets/profiles.dat`，且**不再**含任何 `agent.cordis.yml`
 - [ ] `verify-pack --require-sealed` 解封 `payload.dat`，确认 `scripts/gen-preset.mjs` / `setup-preset.{ps1,sh}` 与两个真实入口都在（缺失即红）
 - [ ] setup-preset 从安装位置跑通，输出 `unchanged:`（即与仓库产物逐字节一致）
 - [ ] `dsh web --dump-config` 里出现 `- id: preset-helmd` / `config: id: helmd` / 末行 `@adwmc/helm-d/agent`，且 preset 的 plugins 行集合 = 宿主 standard 行 + `helmd`（0.1.7 的挂载证明，不需要开真机会话）

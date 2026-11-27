@@ -3,7 +3,7 @@
 // without an active case tools behave exactly as before (plus a footer).
 
 import type { Context } from '@deepseek-ai/cordis'
-import { getCase, saveEvidence, loadHypotheses, loadFindings, listEvidence } from './case.js'
+import { getCase, saveEvidence, loadHypotheses, assessFindings, listEvidence } from './case.js'
 import { getLevel } from './mode.js'
 import { deriveNextAction } from './autonomy.js'
 import { submitAdvisory } from './advisory.js'
@@ -16,11 +16,10 @@ const NO_PERSIST = new Set([
   'evidence_reference', 'native_reference', 'web_reference',
   'malware_reference', 'ai_reference', 'protocol_reference',
   'tool_recommend',
-  // coordination, not an artifact of the analysis
-  'team_dispatch',
   // case lifecycle / ledger bookkeeping itself
   'begin_case', 'case_status', 'record_finding', 'end_case', 'save_evidence',
-  'record_hypothesis', 'update_hypothesis',
+  'record_hypothesis', 'update_hypothesis', 'update_finding',
+  'toolbox', 'protection_route',
   // recon tools persist raw output and the asset/evidence link themselves
   'recon_passive', 'recon_ports', 'recon_http', 'recon_crawl', 'recon_import',
   'run_poc',
@@ -39,7 +38,7 @@ const lastNudge = new Map<string, { at: number; next: string }>()
 async function nudgeCaseState(
   sessionId: string | undefined,
   agent: unknown,
-  active: { dir: string; goal: string },
+  active: { dir: string; goal: string; scope?: string[] },
 ): Promise<void> {
   if (sessionId === undefined) return
   if (!loadSettings().advisory.nextActionNudge) return
@@ -47,11 +46,12 @@ async function nudgeCaseState(
   const last = lastNudge.get(sessionId)
   if (last !== undefined && now - last.at < 3000) return
   const hypotheses = await loadHypotheses(active.dir)
-  const findings = await loadFindings(active.dir)
+  const findings = await assessFindings(active.dir)
   const evidence = await listEvidence(active.dir)
   const next = deriveNextAction({
     mode: getLevel(sessionId),
     goal: active.goal,
+    scope: active.scope,
     hypotheses,
     findings,
     evidence,
@@ -81,6 +81,9 @@ async function persistHook(
   const active = getCase(sessionId)
   if (!active) {
     return result + '\n[no active case — output NOT persisted. begin_case(goal, samples) keeps evidence.]'
+  }
+  if (!result.trim() || /^\s*(?:REJECTED\b|ERROR\b|failed\b|失败|异常|not found\b)/i.test(result)) {
+    return result + '\n[tool did not produce analysis evidence — output NOT persisted]'
   }
   const firstLine = result.split('\n').find((l) => l.trim()) ?? ''
   const large = result.length > 256 * 1024

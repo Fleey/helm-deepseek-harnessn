@@ -27,7 +27,7 @@ import { createHash } from 'node:crypto'
 import { spawnSync } from 'node:child_process'
 import { copyFileSync, existsSync, readFileSync, writeFileSync } from 'node:fs'
 import { homedir } from 'node:os'
-import { join, resolve } from 'node:path'
+import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import type { Context } from '@deepseek-ai/cordis'
 import z from '@deepseek-ai/schemastery'
@@ -42,13 +42,6 @@ import { saveSettings } from './settings.js'
  * store for the running process.
  */
 export const Config = z.object({
-  team: z.object({
-    autoTicket: z.boolean().default(false).description('begin_case 时自动创建 team ticket'),
-    defaultRoles: z.array(z.string()).default(['triage', 'static', 'critic', 'reporter'])
-      .description('新 ticket 的默认角色集'),
-    maxParallelWorkers: z.number().min(1).max(8).default(4).description('每 ticket 同时运行的 worker 上限'),
-    defaultWallTimeMin: z.number().min(1).max(60).default(15).description('worker 默认超时（分钟）'),
-  }),
   intercept: z.object({
     enabled: z.boolean().default(true).description('流式拒绝拦截总开关'),
   }),
@@ -56,7 +49,7 @@ export const Config = z.object({
     autonomyPacket: z.boolean().default(true).description('case_status 附 [autonomy] 状态包'),
     nextActionNudge: z.boolean().default(true).description('工具结果后的下一步建议'),
     requireDocRead: z.boolean().default(true).description('record_finding 前必须真实调用过 read_reference'),
-    requireToolEvidence: z.boolean().default(true).description('引用证据至少一条来自真实工具捕获（非 save_evidence 自编）'),
+    requireToolEvidence: z.boolean().default(true).description('结论须引用已入 Case 的分析观察；外部导入不等于认证执行'),
   }),
   star: z.object({
     popupDelaySec: z.number().min(0).max(60).default(2).description('Star 弹窗延迟秒数'),
@@ -195,8 +188,11 @@ export function readAsarEntry(archive: string, entry: string): string | null {
 }
 
 /**
- * Candidate desktop archives: the standard install roots for productName
- * 'DeepSeek Harness' and the DSH NEXT / DSH Desktop builds, plus
+ * Candidate desktop archives: the archive of the RUNNING packaged binary (the
+ * desktop host runs inside `resources/app.asar` on the same executable, so
+ * `process.execPath` and Electron's `process.resourcesPath` pin it for any
+ * install root), the standard install roots for productName 'DeepSeek Harness'
+ * and the DSH NEXT / DSH Desktop builds, plus
  * <PATH entry>/../../../resources/app.asar because the installed bundled CLI
  * lives at <app>/resources/runtime/cli/bin.
  * DSH_DESKTOP_APP_ASAR pins one archive explicitly.
@@ -206,6 +202,13 @@ function desktopAsarCandidates(): string[] {
   const pinned = process.env.DSH_DESKTOP_APP_ASAR?.trim()
   if (pinned) out.push(resolve(pinned))
   const push = (p: string) => { if (p) out.push(p) }
+  // Self-anchor first: a custom install root (D:\DeepSeek Harness, a portable
+  // build, …) matches none of the default locations, and the host that loads
+  // this plugin IS the packaged binary beside its own resources/app.asar.
+  const exeDir = dirname(process.execPath ?? '')
+  if (exeDir !== '' && exeDir !== '.') push(join(exeDir, 'resources', 'app.asar'))
+  const resourcesPath = (process as unknown as { resourcesPath?: unknown }).resourcesPath
+  if (typeof resourcesPath === 'string' && resourcesPath !== '') push(join(resourcesPath, 'app.asar'))
   if (process.platform === 'win32') {
     for (const app of ['dsh-desktop-next', 'DSH NEXT', 'DSH Desktop', 'dsh-desktop', 'DeepSeek Harness']) {
       if (process.env.LOCALAPPDATA) push(join(process.env.LOCALAPPDATA, 'Programs', app, 'resources', 'app.asar'))
@@ -427,10 +430,7 @@ export function assertPresetArtifact(
 ): { ok: boolean; detail: string } {
   const hostIds = rowIds(hostStandardText)
   const deployedIds = rowIds(deployed)
-  // tool-agent-team rides INSIDE the helmd preset's plugins list (host-native
-  // experimental team tools, helmd-scoped); the agent-team service row sits at
-  // the composition top level, outside any plugins block, so rowIds never sees it.
-  const expected = [...hostIds, 'helmd', 'tool-agent-team'].sort()
+  const expected = [...hostIds, 'helmd'].sort()
   if (JSON.stringify([...deployedIds].sort()) !== JSON.stringify(expected)) {
     return {
       ok: false,

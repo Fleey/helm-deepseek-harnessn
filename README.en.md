@@ -9,7 +9,7 @@
 
 **A security-analysis plugin for DeepSeek Harness.**
 
-49 tools · 353 reference docs + 9 indexes · enforced evidence chain · four hot-swappable persona profiles · local Team collaboration
+14 orchestration tools · 353 reference docs + 9 indexes · case evidence chain · five hot-swappable persona profiles
 
 [![Release](https://img.shields.io/github/v/release/ADWMC/helm-d?style=flat-square&label=release)](https://github.com/ADWMC/helm-d/releases)
 [![Stars](https://img.shields.io/github/stars/ADWMC/helm-d?style=flat-square&logo=github&label=stars)](https://github.com/ADWMC/helm-d/stargazers)
@@ -56,10 +56,10 @@ Telegram / X / Apple / Google / GPT accounts and memberships, with order lookup 
 
 helm-d is a [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) plugin. It does not modify the host binary; it adds four things through cordis hooks:
 
-- **49 tools** across Android / Web / Native / Protocol / Malware / AI-Security, plus the case lifecycle, routing and local Team dispatch.
+- **14 orchestration tools** for Case lifecycle, routing/references and external-tool discovery; no bundled domain analyzers or active probes.
 - **An evidence chain**: tool output lands in `evidence/`; conclusions must cite E ids and a reproducible `repro_cmd`.
 - **On-demand knowledge**: 353 reference docs plus 9 indexes read through `read_reference`, never stuffed into the system prompt.
-- **Four persona tiers**: ds4.1f / stealth / redteam-max / gpt-6x, switched from the workbench without restarting the host.
+- **Five persona tiers**: core / stealth / redteam-max / ds4.1f / gpt-6x, switched from the workbench without restarting the host.
 
 It is **not** an engine patch: no on-disk changes to approvals or the sandbox, and no separate process. It can coexist with patch-style tools.
 
@@ -68,7 +68,7 @@ It is **not** an engine patch: no on-disk changes to approvals or the sandbox, a
 **Requirements**: Node >= 22.19 and the [`dsh`](https://github.com/deepseek-ai/deepseek-harness) CLI.
 
 ```bash
-dsh plugin --profile web add https://github.com/ADWMC/helm-d/releases/download/v0.6.0/helm-d.tgz
+dsh plugin --profile web add https://github.com/ADWMC/helm-d/releases/download/v0.7.0/helm-d.tgz
 dsh web
 ```
 
@@ -88,7 +88,7 @@ The boot-time health check validates and, when needed, repairs the preset agains
 
 1. Open a new DSH session and select the **helmd** agent preset.
 2. Send `helmd` to activate it.
-3. Do one read/list action first. The first turn only exposes `shell + read`; the full 46-tool catalog (including `begin_case`) appears on the next turn — that is the host promotion mechanism, not a broken plugin.
+3. `route_task` and `read_reference` are available from the first request. Route and read the relevant reference; that call promotes the full catalog, including `begin_case`. No unrelated shell call is needed to unlock routing.
 4. Give it a task, for example:
 
    > Analyze how `samples/app.apk` is protected, open a case, collect evidence, and finish with a conclusion that includes `repro_cmd`.
@@ -108,24 +108,25 @@ Citing an E id that does not exist is rejected. `repro_cmd` is required: a concl
 
 | Capability | What you get |
 |---|---|
-| **Six domains** | Android unpacking/Frida, Web exploitation, Native packers and anti-reversing, Protocol capture, Malware IOC/YARA, AI-Security |
+| **Six domains, external specialists** | Android, Web, Native, Protocol, Malware and AI-Security references and tool discovery; no built-in domain analyzers |
 | **Case & evidence** | On-disk workspace, automatic evidence capture, E-id validation, `repro_cmd` gate; `case_status` restores context after compaction |
-| **Persona profiles** | ds4.1f / stealth / redteam-max / gpt-6x; `POST /api/helmd/profile` disposes and re-registers the persona section in place — no host restart |
+| **Persona profiles** | core / stealth / redteam-max / ds4.1f / gpt-6x; `POST /api/helmd/profile` disposes and re-registers the persona section in place — no host restart |
 | **On-demand references** | 353 docs plus 9 indexes routed by `skill_catalog` and read by `read_reference`, not injected into the system prompt |
 | **Autonomy packet** | `case_status` returns hypotheses, findings, evidence, dead ends, the matching playbook and the next action |
-| **Workbench** | Seven tabs — Armor / Case / Team / Tools / Intercept / Settings / About — with a sidebar-first entry, backed by `/api/helmd/*` |
+| **Workbench** | Six tabs — Armor / Case / Tools / Intercept / Settings / About — with a sidebar-first entry, backed by `/api/helmd/*` |
 
 <details>
-<summary>What the four persona profiles change (expand)</summary>
+<summary>What the five persona profiles change (expand)</summary>
 
 | Profile | Positioning | Content |
 |---|---|---|
-| **ds4.1f** | "似乎是ds4.1f v10" — general-purpose default | Full base rules |
-| **stealth** | "概率通用（轻量）" — low-noise | ds4.1f + minimal output / read-first / single-target focus |
-| **redteam-max** | "概率通用（加厚）" — heavier pentest | ds4.1f + full attack chain / dual-column output / complete deliverables |
-| **gpt-6x** | "gpt 6x" — standalone CTF-sandbox tier | Helm-X v6: CTF framing, scoring table, four-role delivery contract (not yet tested on DSH) |
+| **core** | Full base rules (v10, default) | Full base rules |
+| **stealth** | Low-noise | core + minimal output / read-first / single-target focus |
+| **redteam-max** | Heavier pentest | core + full attack chain / dual-column output / complete deliverables |
+| **ds4.1f** | Upstream tier name (same as core) | `extends: core` alias: byte-identical to core, kept for the upstream tier id |
+| **gpt-6x** | Standalone CTF-sandbox tier | Helm-X v6: CTF framing, scoring table, four-role delivery contract (not yet tested on DSH) |
 
-All three are sealed in `profiles.dat`. Switching disposes the old section and re-registers it in place; no host restart.
+All five are sealed in `profiles.dat`. Switching disposes the old section and re-registers it in place; no host restart.
 
 </details>
 
@@ -133,39 +134,30 @@ All three are sealed in `profiles.dat`. Switching disposes the old section and r
 
 Click the `helmd` workbench button in the DSH session header. It opens the right sidebar first and falls back to a popover only when the sidebar service is unavailable:
 
-- **Profiles**: switch between the four personas live.
+- **Profiles**: switch between the five personas live.
 - **Case**: the case bound to this session — hypotheses, findings, evidence and open questions. When unbound it shows a hint plus recent on-disk cases instead of another session's investigation.
-- **Team**: local multi-agent collaboration — tickets, role workers, reports, evidence, evolution revisions and the A/B gate.
 - **Tools**: external tool catalog (GitHub repos only), install status, release-asset install/uninstall.
-- **Intercept**: counts and excerpts from the stream refusal loop.
-- **Settings**: Team concurrency / default roles / auto-ticket, intercept switch, autonomy helpers, Star delay — one store shared with the DSH settings page.
+- **Intercept**: counts and recent history from the stream refusal loop.
+- **Settings**: intercept switch, autonomy helpers, Star delay — one store shared with the DSH settings page.
 - **About**: version, author, disclaimer, update address, changelog and an on-demand update check.
 
 ## Tools
 
-Most-used entry points: `begin_case` / `case_status` / `record_finding` / `update_finding` / `end_case` / `route_task` / `read_reference` / `analysis_mode` / `team_create` / `team_dispatch` / `team_status`.
+Most-used entry points: `begin_case` / `case_status` / `record_finding` / `update_finding` / `end_case` / `route_task` / `read_reference` / `analysis_mode`.
 
 <details>
-<summary><strong>All 49 tools (expand by domain)</strong></summary>
+<summary><strong>All 14 orchestration tools</strong></summary>
 
 | Domain | Tools |
 |---|---|
 | **Case** | `begin_case` `case_status` `record_finding` `update_finding` `save_evidence` `end_case` |
 | **Case / hypothesis** | `record_hypothesis` `update_hypothesis` |
 | **Routing / knowledge** | `skill_catalog` `read_reference` `route_task` `analysis_mode` |
-| **Android** | `apk_fingerprint` |
-| **Web** | `web_reference` `bot_analyze` |
-| **Native** | `native_reference` `detect_packer` `scan_strings` `xor_bruteforce` `encoding_detect` |
-| **Protocol** | `protocol_reference` `pcap_parse` `state_machine` `parse_har` |
-| **Malware** | `malware_reference` `ioc_extract` `yara_gen` |
-| **AI-Security** | `ai_reference` `llm_sim` |
-| **Evidence** | `evidence_reference` `triage_artifact` `hash_artifact` |
-| **Recon** | `recon_passive` `recon_ports` `recon_http` `recon_crawl` `recon_import` |
-| **PoC / Mining / OOB** | `run_poc` `mine_candidates` `oob_start` `oob_poll` `oob_stop` |
 | **Toolbox** | `tool_recommend` `toolbox` |
-| **Team** | `team_dispatch` `team_create` `team_status` `team_report` `team_steer` |
 
 </details>
+
+Use reviewed specialist tools through the host shell (`toolbox` can discover/probe them), then preserve raw output with `save_evidence`. Manually imported output defaults to a candidate finding; Case `verified` is a triage assertion, not independent machine verification.
 
 ## References
 
@@ -174,15 +166,15 @@ The 353 reference docs plus 9 indexes live in [`references/`](packages/helmd/ref
 ## How it runs
 
 ```text
-request → first-turn anchor (shell + read) → route_task
-        → domain tools / read_reference → evidence/ (E ids)
+request → first-turn anchor (shell + read + route_task + read_reference) → route_task
+        → external specialist tools / read_reference → save_evidence → evidence/ (E ids)
         → conclusion with confidence and repro_cmd
 ```
 
 <details>
 <summary>Architecture and runtime hooks (expand)</summary>
 
-- `bootstrap`: first turn exposes only the platform shell + `read`; promotes after a tool call or assistant message.
+- `bootstrap`: first turn exposes the platform shell, `read`, `route_task`, and `read_reference`; promotes after a tool call or assistant message. Reverse-engineering tasks get a bounded first-reference preview; a successful read is still required for the full document.
 - `gate`: registers the `helm-d:persona` section; the Star panel is a notice layer only and never gates a feature.
 - `persist`: captures output from every later-registered domain tool into `evidence/`.
 - `advisory-hook` / `llm-stream-hook` / `ica-context`: refusal detection, stream interception loop and behavior examples.
@@ -219,20 +211,20 @@ See [architecture](docs/architecture.md) and [design principles](docs/principles
 
 | Item | Requirement |
 |---|---|
-| DSH | every published version in `0.2.0-rc.1` – `0.2.2-rc.4` (preset generation/repair and workbench UI tokens regression-tested across the whole interval; host-seam checks run against the installed rc.3 desktop host; runtime cold-start not executed on each of the 18 hosts) |
-| Node | `>= 22.19.0` |
+| DSH | published versions `0.2.0-rc.1` – `0.2.2-rc.5`, plus `0.2.3-alpha.1` / `.2` (peer admission, preset generation/repair and UI tokens tested; real cold start on newer hosts not verified) |
+| Node | plugin `>= 22.19.0`; DSH `0.2.3-alpha.1` needs `>= 24.9.0`, `.2` needs `^24.22.3 || >= 26.13.1` |
 | Platform | Windows uses `pwsh`; Linux / macOS use `bash`; WSL via `wsl.exe` |
 
 ```bash
 # Update: remove first, then install the target version (never latest/download)
 dsh plugin --profile web remove @adwmc/helm-d
-dsh plugin --profile web add https://github.com/ADWMC/helm-d/releases/download/v0.6.0/helm-d.tgz
+dsh plugin --profile web add https://github.com/ADWMC/helm-d/releases/download/v0.7.0/helm-d.tgz
 
 # Uninstall
 dsh plugin --profile web remove @adwmc/helm-d
 ```
 
-Replace `v0.6.0` with the target Release tag; do not use `releases/latest/download/*` as a profile dependency.
+Replace `v0.7.0` with the target Release tag; do not use `releases/latest/download/*` as a profile dependency.
 
 ## Docs
 

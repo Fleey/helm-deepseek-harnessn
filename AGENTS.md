@@ -111,3 +111,16 @@
 - 修改范围最小且符合项目风格；已执行相称验证并准确报告。
 - 未引入无关改动或明显副作用；未泄露敏感信息。
 - 输出清楚说明结果与必要残余风险。
+## 12. 仓库开发规则（本仓库自身）
+
+本节只约束在 `helm-d` 仓库内改代码、文档、preset、打包与发布的工作，不改变 §1–§11 的分析工作规范。
+
+- **开工前**：读 `CONTRIBUTING.md` 与 `docs/development.md`；开发环境用 Node >=22.19、pnpm 11.7.0。
+- **完成门禁**：`pnpm build` → `pnpm typecheck` → `pnpm test:checks`。没有安装 dsh 宿主时，host 相关检查会 SKIP；报告时写"SKIP/未验证"，不要写成 PASS。
+- **禁止手改生成物**：`packages/helmd/preset.generated.patch.yml`、`dist/`、`.real/`、`payload.dat`、`references.dat`、`profiles.dat`。改源后重新生成。
+- **单一事实源**：运行时 persona 在 `packages/helmd/presets/profiles/core.md`（fork 主档；`ds4.1f.md` 只是 `extends: core` 的上游命名别名，`build-profiles.mjs` 校验激活行在 `core.md`）；`persona.txt` 只做 preset sanity；preset 平台行由 `gen-preset.mjs` 从宿主 standard 派生。
+- **路径安全**：模型/用户参数拼出的路径必须经 `assertWithinRoot()` 或等价围栏；case 域新增文件操作时尤其注意。
+- **打包/发布**：发布前跑 `.\scripts\repack.ps1` 与 `node scripts/verify-pack.mjs --require-sealed`；版本必须是合法 SemVer，tag 等于 `v<version>`；当前 release 资产是 3 个 tgz，不包含 installer。
+- **文档同步**：工具数、版本、files 白名单、命令、检查集变化时，同一变更内更新 README / README.en / MAINTENANCE / CHANGELOG / docs/development。
+- **数据与凭据**：不提交 `cookie.txt`、`helmd-cases/`、`_refs/`、`dist-tgz/`、`tmp/`、`output/`；日志与证据中的凭据先脱敏。
+- **报告格式**：继续使用 §9 的四类前缀；结论附命令或文件证据，拿不出证据的归入「已修复未验证」。

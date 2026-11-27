@@ -50,60 +50,6 @@ const SEALED_SECRET = 'helm-d/profiles/v1::6f4d2a0c-9e17-4b8e-a3f2-c81d54e7b930'
 const SEALED_SALT = 'helm-d/profiles/v1::salt-v1'
 const SEALED_KEY = scryptSync(SEALED_SECRET, SEALED_SALT, 32)
 
-/**
- * `!!js` conditions for the two team rows this preset adds: each stands down
- * while the Host root already runs the same Agent Teams plugin, OR while the
- * host generation cannot resolve the row's package name at all.
- *
- * Since dsh 0.2.2-rc.2 the Team packages are stable names —
- * `@deepseek-ai/dsh-agent-team` / `@deepseek-ai/dsh-tool-agent-team` — and
- * dsh-base mounts both at the Host root (the old experimental
- * `…-agent-team-profile` bundle is retired). Both rows therefore name the
- * stable packages. A `!!js` name is NOT possible: the preset registry
- * validates `name` as a literal string and the Loader imports it verbatim.
- * On older in-interval hosts (0.2.0-rc.1 … 0.2.2-rc.1) the stable packages
- * do not exist, so both rows stand down there through a resolve-probe in
- * the disabled condition (`baseUrl` + `createRequire`, the same resolution
- * the host's own skill-filesystem row uses); helmd's own team_* tools carry
- * the local protocol on those hosts, exactly as before. The standdown scan
- * matches BOTH spellings, so a host still running the retired experimental
- * bundle also suppresses the duplicate rows.
- *
- * With the host copy on, a second `tool-agent-team` inside this preset
- * installs the Team tools on every team member twice: the second
- * `systemPrompt.section({ name: 'team:policy' })` throws "already registered
- * in this scope", the serial `agent/created` dispatch fails, the Agent is torn
- * down and the client opens it again — the session flickers in a create/dispose
- * loop (about 10 per second).
- *
- * The Loader evaluates these as `with (ctx) eval(expr)`. `loader.entries()`
- * walks the Host root tree only (a preset mounts a tree of its own), so the
- * preset row never meets itself; the service row skips its own id before it
- * reads `disabled`, so it never evaluates itself either. No double quotes:
- * the text is emitted inside a double-quoted YAML scalar.
- */
-const TEAM_SERVICE_ID = 'helmd-agent-team'
-/** Host-root scan: any live entry whose name is one of `names` (excluding `exceptId`). */
-function hostRunsPlugin(names, exceptId) {
-  const self = exceptId === undefined ? '' : ` && e.options?.id !== '${exceptId}'`
-  const match = names.map((name) => `e.options?.name === '${name}'`).join(' || ')
-  return `[...(ctx.get('loader')?.entries?.() ?? [])].some((e) => (${match})${self} && !e.disabled)`
-}
-/** Resolve-probe: can the host tree resolve `pkg` from its own baseUrl? */
-function hostResolves(pkg) {
-  return `(() => { try { return Boolean(baseUrl && process.getBuiltinModule('node:module').createRequire(baseUrl).resolve('${pkg}/package.json')) } catch { return false } })()`
-}
-// Tool row: stable name; stands down on hosts without the package, and beside
-// a live host copy of either spelling.
-const TEAM_TOOLS_ON_HOST = `!(${hostResolves('@deepseek-ai/dsh-tool-agent-team')}) || ${hostRunsPlugin([
-  '@deepseek-ai/dsh-tool-agent-team',
-  '@deepseek-ai/dsh-experimental-tool-agent-team',
-])}`
-// Service row: same contract at the host plane.
-const TEAM_SERVICE_ON_HOST = `!(${hostResolves('@deepseek-ai/dsh-agent-team')}) || ${hostRunsPlugin([
-  '@deepseek-ai/dsh-agent-team',
-  '@deepseek-ai/dsh-experimental-agent-team',
-], TEAM_SERVICE_ID)}`
 
 const scriptDir = dirname(fileURLToPath(import.meta.url))
 const repoRoot = resolve(scriptDir, '..')
@@ -320,10 +266,12 @@ export function readAsarEntry(archive, entry) {
 }
 
 /**
- * Candidate desktop archives: the standard install roots for productName
- * 'DeepSeek Harness' and the DSH NEXT / DSH Desktop builds, plus
- * <PATH entry>/../../../resources/app.asar because the installed bundled CLI
- * lives at <app>/resources/runtime/cli/bin.
+ * Candidate desktop archives: the archive of the RUNNING packaged binary (the
+ * desktop host runs inside `resources/app.asar` on the same executable, so
+ * `process.execPath` and Electron's `process.resourcesPath` pin it for any
+ * install root), the standard install roots for productName 'DeepSeek Harness'
+ * and the DSH NEXT / DSH Desktop builds, plus <PATH entry>/../../../resources/app.asar
+ * because the installed bundled CLI lives at <app>/resources/runtime/cli/bin.
  * DSH_DESKTOP_APP_ASAR pins one archive explicitly.
  */
 function desktopAsarCandidates() {
@@ -331,6 +279,13 @@ function desktopAsarCandidates() {
   const pinned = process.env.DSH_DESKTOP_APP_ASAR?.trim()
   if (pinned) out.push(resolve(pinned))
   const push = (p) => { if (p) out.push(p) }
+  // Self-anchor first: a custom install root (D:\DeepSeek Harness, a portable
+  // build, …) matches none of the default locations, and the host that loads
+  // this plugin IS the packaged binary beside its own resources/app.asar.
+  const exeDir = dirname(process.execPath ?? '')
+  if (exeDir !== '' && exeDir !== '.') push(join(exeDir, 'resources', 'app.asar'))
+  const resourcesPath = process.resourcesPath
+  if (typeof resourcesPath === 'string' && resourcesPath !== '') push(join(resourcesPath, 'app.asar'))
   if (process.platform === 'win32') {
     for (const app of ['dsh-desktop-next', 'DSH NEXT', 'DSH Desktop', 'dsh-desktop', 'DeepSeek Harness']) {
       if (process.env.LOCALAPPDATA) push(join(process.env.LOCALAPPDATA, 'Programs', app, 'resources', 'app.asar'))
@@ -558,32 +513,8 @@ function generate(hostText, personaText) {
   if (personaStart < 0) throw new Error('host standard has no top-level `persona` row in plugins')
   if (personaEnd < 0) personaEnd = end
   const helmdRow = [
-    // Host-native team tools, scoped to helmd sessions only (the service row
-    // below is the host-plane half; this row is the per-preset half, mirroring
-    // how standard.patch.yml scopes tool-subagent inside the preset). The
-    // stable name ships since dsh 0.2.2-rc.2; on older in-interval hosts the
-    // resolve-probe in TEAM_TOOLS_ON_HOST stands the row down (helmd's own
-    // team_* tools carry the protocol there). The name must stay a literal
-    // string — the preset registry rejects a !!js name.
-    `${basePrefix}- id: tool-agent-team`,
-    `${' '.repeat(base + 2)}name: '@deepseek-ai/dsh-tool-agent-team'`,
-    `${' '.repeat(base + 2)}disabled: !!js "${TEAM_TOOLS_ON_HOST}"`,
     `${basePrefix}- id: helmd`,
     `${' '.repeat(base + 2)}name: '@adwmc/helm-d/agent'`,
-  ]
-  // Host-plane team service (task DAG over the subagent tree). static inject is
-  // all host-level services, so it composes at the top level like `subagent`
-  // does in dsh-base — a sibling entry INSIDE the same `- insert:` list (col 4,
-  // matching preset-helmd), outside any plugins block, hence invisible to
-  // pluginRowIds and to the helmd-only tool scoping. Its own id keeps it apart
-  // from the host's `agent-team` row (inserts are not deduplicated), and it
-  // stands down when that row is already running. No config: the stable
-  // service rejects the old `maxMembers` key (TEAM_INVALID_CONFIG) and its
-  // defaults need no override.
-  const teamServiceRow = [
-    `    - id: ${TEAM_SERVICE_ID}`,
-    "      name: '@deepseek-ai/dsh-agent-team'",
-    `      disabled: !!js "${TEAM_SERVICE_ON_HOST}"`,
   ]
   const insertIdx = lines.findIndex((l) => l === '- insert:')
   if (insertIdx < 0 || insertIdx > pi) {
@@ -596,7 +527,6 @@ function generate(hostText, personaText) {
     ...lines.slice(personaEnd, end),
     ...helmdRow,
     ...lines.slice(end),
-    ...teamServiceRow,
   ]
   const out = outLines.join('\n')
   assertShape(hostText, out, personaText, base)
@@ -607,7 +537,7 @@ function generate(hostText, personaText) {
 function assertShape(hostText, out, personaText, base) {
   const hostIds = pluginRowIds(hostText)
   const outIds = pluginRowIds(out)
-  const expect = [...hostIds, 'helmd', 'tool-agent-team'].sort()
+  const expect = [...hostIds, 'helmd'].sort()
   const got = [...outIds].sort()
   if (JSON.stringify(got) !== JSON.stringify(expect)) {
     throw new Error(`row id set mismatch\n  expected: ${expect.join(', ')}\n  got:      ${got.join(', ')}`)

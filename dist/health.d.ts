@@ -8,17 +8,6 @@ import z from '@deepseek-ai/schemastery';
  * store for the running process.
  */
 export declare const Config: z<Schemastery.ObjectS<NoInfer<{
-    team: z<Schemastery.ObjectS<NoInfer<{
-        autoTicket: z<boolean, boolean, "defined">;
-        defaultRoles: z<string[], string[], "defined">;
-        maxParallelWorkers: z<number, number, "defined">;
-        defaultWallTimeMin: z<number, number, "defined">;
-    }>>, Schemastery.ObjectT<NoInfer<{
-        autoTicket: z<boolean, boolean, "defined">;
-        defaultRoles: z<string[], string[], "defined">;
-        maxParallelWorkers: z<number, number, "defined">;
-        defaultWallTimeMin: z<number, number, "defined">;
-    }>>, "plain">;
     intercept: z<Schemastery.ObjectS<NoInfer<{
         enabled: z<boolean, boolean, "defined">;
     }>>, Schemastery.ObjectT<NoInfer<{
@@ -46,17 +35,6 @@ export declare const Config: z<Schemastery.ObjectS<NoInfer<{
         modelInstall: z<boolean, boolean, "defined">;
     }>>, "plain">;
 }>>, Schemastery.ObjectT<NoInfer<{
-    team: z<Schemastery.ObjectS<NoInfer<{
-        autoTicket: z<boolean, boolean, "defined">;
-        defaultRoles: z<string[], string[], "defined">;
-        maxParallelWorkers: z<number, number, "defined">;
-        defaultWallTimeMin: z<number, number, "defined">;
-    }>>, Schemastery.ObjectT<NoInfer<{
-        autoTicket: z<boolean, boolean, "defined">;
-        defaultRoles: z<string[], string[], "defined">;
-        maxParallelWorkers: z<number, number, "defined">;
-        defaultWallTimeMin: z<number, number, "defined">;
-    }>>, "plain">;
     intercept: z<Schemastery.ObjectS<NoInfer<{
         enabled: z<boolean, boolean, "defined">;
     }>>, Schemastery.ObjectT<NoInfer<{

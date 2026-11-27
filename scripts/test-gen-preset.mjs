@@ -32,11 +32,10 @@ try {
   assert.match(first, /generated:/)
   const generated = readFileSync(outputPath, 'utf8')
   assert.match(generated, /^# gen-preset: host=[0-9a-f]{64}/)
-  // Top-level plugin rows (indent 10) are the host's own, in host order, plus the
-  // host-native team tools row and helmd.
+  // Top-level plugin rows (indent 10) are the host's own, in host order, plus helmd.
   assert.deepEqual(
     [...generated.matchAll(/^ {10}- id: (.+)$/gm)].map((m) => m[1]),
-    ['persona', 'tool-pwsh', 'tool-fs', 'planning', 'tool-agent-team', 'helmd'],
+    ['persona', 'tool-pwsh', 'tool-fs', 'planning', 'helmd'],
   )
   assert.match(generated, /^ {10}  name: '@deepseek-ai\/dsh-tool-pwsh'$/m, 'platform rows must survive')
   assert.match(generated, /disabled: !!js process\.platform !== 'win32'/, 'host `!!js` expressions must pass through')
@@ -49,14 +48,9 @@ try {
   assert.match(generated, /^ {8}order: 10$/m, 'preset.yml order must migrate into the entry config')
   assert.match(generated, /^ {8}description: "helmd: /m, 'preset.yml description must migrate into the entry config')
   assert.match(generated, /^ {10}- id: helmd\n {12}name: '@adwmc\/helm-d\/agent'$/m, 'the agent row must sit at the plugins level')
-  // Both Agent Teams rows name the stable packages (dsh >= 0.2.2-rc.2) and
-  // stand down while the Host root already runs the same plugin under either
-  // spelling, or while the host cannot resolve the stable package at all;
-  // scripts/checks/team-rows.check.mjs evaluates the conditions the way the
-  // Loader does.
-  assert.match(generated, /^ {10}- id: tool-agent-team\n {12}name: '@deepseek-ai\/dsh-tool-agent-team'\n {12}disabled: !!js "[^"]*dsh-experimental-tool-agent-team[^"]*"$/m, 'the preset team tools row must stand down beside the host copy')
-  assert.match(generated, /^ {4}- id: helmd-agent-team\n {6}name: '@deepseek-ai\/dsh-agent-team'\n {6}disabled: !!js "[^"]*e\.options\?\.id !== 'helmd-agent-team'[^"]*"$/m, 'the team service row needs its own id and must stand down beside the host copy')
-  assert.doesNotMatch(generated, /maxMembers/, 'the stable team service rejects maxMembers (TEAM_INVALID_CONFIG)')
+  // The team feature is gone: no Agent Teams specifier may appear, under either
+  // the pre- or post-0.2.2-rc.2 name.
+  assert.doesNotMatch(generated, /agent-team/, 'team rows must stay out of the generated preset')
   assert.doesNotMatch(generated, /\{\{model\}\}|\{\{cwd\}\}/, 'host persona templates must not leak')
   assert.match(generated, /\n$/, 'the patch must end with a newline')
   // The agent row is the /agent subpath; the host row must be the BARE package name.
@@ -90,6 +84,19 @@ try {
     const source = readFileSync(join(import.meta.dirname, '..', script), 'utf8')
     assert.doesNotMatch(source, /已进入逆向模式|真心为你|activation protocol|startup prompt/i)
   }
+
+  // The team feature is gone: the generator must emit no Agent Teams row on any
+  // host, regardless of version (DSH_HOST_VERSION stays honoured where it still
+  // applies, but no team specifier follows from it).
+  const renamedOut = join(root, 'renamed')
+  execFileSync(process.execPath, ['scripts/gen-preset.mjs', '--out', renamedOut], {
+    cwd: join(import.meta.dirname, '..'),
+    env: { ...env, DSH_HOST_VERSION: '0.2.2-rc.3' },
+    encoding: 'utf8',
+  })
+  const renamed = readFileSync(join(renamedOut, 'preset.generated.patch.yml'), 'utf8')
+  assert.doesNotMatch(renamed, /agent-team/, 'no team row may appear on a renamed host')
+  assert.doesNotMatch(renamed, /dsh-experimental-/, 'no pre-rename specifier may survive')
 
   const firstMtime = statSync(outputPath).mtimeMs
   await new Promise((resolve) => setTimeout(resolve, 1100))

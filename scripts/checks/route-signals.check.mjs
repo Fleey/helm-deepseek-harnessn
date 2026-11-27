@@ -23,4 +23,20 @@ await report.check('generic hijacking and injection hints do not route to llm', 
   }
 })
 
+await report.check('native sample names and generic reverse tasks reach native guidance', () => {
+  for (const hint of ['逆向', '分析这个 ELF', '检查 sample.so']) {
+    assert.equal(primary(hint), 'native', `expected native for: ${hint}`)
+  }
+  assert.equal(primary('UPX 壳'), 'shell')
+  assert.equal(primary('APK classes.dex'), 'apk')
+})
+
+await report.check('negated tasks do not override the requested target; short English signals match words', () => {
+  assert.equal(primary('不要分析 APK，只看 ELF'), 'native')
+  assert.equal(primary('请不要解密，仅检查 ELF'), 'native')
+  assert.notEqual(primary('design review'), 'jvm')
+  assert.equal(primary('检查 .so 的 Frida hook'), 'hook')
+  assert.equal(seam.router.firstReference('检查 .so 的 Frida hook'), 'native/dynamic-analysis-frida.md')
+})
+
 report.finish()

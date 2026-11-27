@@ -3,36 +3,39 @@
 // DSH NEXT 2.0.23+ (dsh 0.2.2-rc.2+) flat at app.asar/node_modules/… — which
 // no node_modules probe can see. This check pins:
 //   1. the committed fixture archive (built with @electron/asar 4.3.1, the same
-//      tool the product packs with) yields the newest in-interval host standard
-//      through the shipped zero-dependency reader, in BOTH archive layouts;
+//      tool the product packs with) yields the newest captured desktop host
+//      standard through the shipped zero-dependency reader, in BOTH layouts;
 //   2. unreadable / wrong-shape / truncated archives read as null (probe falls
 //      through instead of failing boot);
 //   3. an `unpacked` entry is read from the app.asar.unpacked sibling;
 //   4. end to end through the public health API: DSH_DESKTOP_APP_ASAR drives
-//      locate + HOST_UPGRADED repair against the archived standard.
+//      locate + HOST_UPGRADED repair against the archived standard;
+//   5. a packaged host anchors its own archive through process.execPath, so a
+//      custom install root needs no locator override.
 // Under Electron (RunAsNode) node:fs itself virtualizes every `.asar` path,
 // so archive bytes are read through original-fs there; plain node keeps fs.
 import assert from 'node:assert/strict'
 import { execFileSync } from 'node:child_process'
 import { createHash } from 'node:crypto'
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { copyFileSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
-import { distDir, loadArtifacts } from './artifacts.mjs'
+import { distDir, distReady } from './artifacts.mjs'
 import { createReporter, skip } from './reporter.mjs'
 
-const seam = await loadArtifacts()
-if (seam === null) skip('host-asar', 'need packages/helmd/dist (run pnpm build)')
+// The committed archive fixture supplies the host; only the build is required,
+// so a machine without an npm-global dsh still exercises this contract.
+if (!distReady()) skip('host-asar', 'need packages/helmd/dist (run pnpm build)')
 
 const report = createReporter('host-asar')
 const here = dirname(fileURLToPath(import.meta.url))
 const fixtures = join(here, 'fixtures')
 const manifest = JSON.parse(readFileSync(join(fixtures, 'dsh-host-manifest.json'), 'utf8'))
-const { readAsarEntry } = await import(pathToFileURL(join(distDir, 'health.js')).href)
+const { readAsarEntry, evaluateHealth } = await import(pathToFileURL(join(distDir, 'health.js')).href)
 
-/** Read/write real bytes of an archive file even under Electron's asar fs
- *  wrapper, which virtualizes every `.asar` path for reads AND writes. */
+/** Read real bytes of an archive file even under Electron's asar fs wrapper,
+ *  which virtualizes every `.asar` path for reads AND writes. (fork) */
 const rawFs = (() => {
   if (process.versions.electron !== undefined) {
     try {
@@ -46,11 +49,15 @@ const archiveBytes = (path) => rawFs.readFileSync(path)
 
 const archive = join(fixtures, 'desktop-app.asar')
 const ENTRY = 'dsh/node_modules/@deepseek-ai/dsh-web-app/presets/standard.patch.yml'
+// DSH NEXT 2.0.23+ packs the CLI package as the archive root (no dsh/ prefix).
 const ENTRY_FLAT = 'node_modules/@deepseek-ai/dsh-web-app/presets/standard.patch.yml'
 const oldest = manifest.hosts[0]
-const newest = manifest.hosts[manifest.hosts.length - 1]
+// This archive is a captured desktop 0.2.2-rc.5 install. Newer npm hosts
+// have their own published-standard fixtures in the manifest.
+const newest = manifest.hosts.find((host) => host.version === '0.2.2-rc.5')
+assert.ok(newest, 'the captured desktop version must remain in the manifest')
 
-await report.check('the committed desktop archive yields the newest host standard in both layouts', () => {
+await report.check('the committed desktop archive yields the newest desktop host standard in both layouts', () => {
   // The archive bytes are immutable LF; the fixture is pinned eol=lf but a
   // hand-copied checkout could still carry CRLF, so compare content, not bytes.
   const norm = (t) => t.replace(/\r\n/g, '\n')
@@ -58,7 +65,7 @@ await report.check('the committed desktop archive yields the newest host standar
   for (const entry of [ENTRY, ENTRY_FLAT]) {
     const text = readAsarEntry(archive, entry)
     assert.ok(text !== null, `the fixture archive must carry the host standard at ${entry}`)
-    assert.equal(norm(text), norm(expected), 'archive content must match the manifest standard')
+    assert.equal(norm(text), norm(expected), `archive content at ${entry} must match the manifest standard`)
     assert.equal(createHash('sha256').update(norm(text), 'utf8').digest('hex'), newest.standard.sha256)
   }
 })
@@ -111,13 +118,50 @@ try {
   delete process.env.HELMD_AUTO_HEAL
 
   await report.check('a pinned desktop archive drives locate + repair end to end', () => {
-    const base = seam.health.evaluateHealth()
+    const base = evaluateHealth()
     // Newest layout first: the flat DSH NEXT entry wins over the legacy dsh/ one.
     assert.equal(base.hostPath, `${archive}!${ENTRY_FLAT}`, 'the located host must display as archive!entry')
     assert.equal(base.hostFingerprint, newest.standard.sha256.slice(0, 12))
     assert.match(base.autoHeal, /^healed \(HOST_UPGRADED → OK\)/, `unexpected verdict: ${base.autoHeal}`)
     const healed = readFileSync(patchPath, 'utf8')
     assert.match(healed, new RegExp(`^# gen-preset: host=${newest.standard.sha256}`), 'the repair must anchor the archived host')
+    // The team rows were removed with the team feature; a repaired artifact must
+    // carry none of the Agent Teams specifiers, pre- or post-rename.
+    assert.doesNotMatch(healed, /dsh-experimental-tool-agent-team/, 'the repair must not keep the pre-rename team package name')
+    assert.doesNotMatch(healed, /dsh-tool-agent-team/, 'the repair must not re-add the renamed team package either')
+  })
+
+  // A desktop install in a custom root (D:\…, portable) matches none of the
+  // per-OS defaults and none of the PATH prefixes, yet the host that loads the
+  // plugin IS the packaged binary beside its own resources/app.asar. Pin that
+  // self-anchor end to end: the shipped artifact must read OK against it.
+  await report.check('the running executable anchors its own resources/app.asar', () => {
+    const anchor = join(home, 'anchor')
+    const resources = join(anchor, 'resources')
+    mkdirSync(resources, { recursive: true })
+    // Real bytes: under Electron copyFileSync reads the VIRTUAL archive dir and
+    // fails with ENOENT, so read through original-fs and write the raw image.
+    rawFs.writeFileSync(join(resources, 'app.asar'), archiveBytes(archive))
+    const presetProbe = join(anchor, 'preset.patch.yml')
+    copyFileSync(join(distDir, '..', 'preset.generated.patch.yml'), presetProbe)
+    const probe = join(anchor, 'probe.mjs')
+    writeFileSync(probe, [
+      "import { pathToFileURL } from 'node:url'",
+      `Object.defineProperty(process, 'execPath', { value: ${JSON.stringify(join(anchor, 'DeepSeek Harness.exe'))} })`,
+      `const health = await import(pathToFileURL(${JSON.stringify(join(distDir, 'health.js'))}).href)`,
+      'const verdict = health.evaluateHealth()',
+      'process.stdout.write(JSON.stringify({ status: verdict.status, hostPath: verdict.hostPath }))',
+      '',
+    ].join('\n'), 'utf8')
+    const stdout = execFileSync(process.execPath, [probe], {
+      encoding: 'utf8',
+      // Clear every locator override so only the executable anchor can match.
+      env: { ...process.env, PATH: '', DSH_DESKTOP_APP_ASAR: '', DSH_HOST_STANDARD_YML: '', HELMD_PRESET_PATCH: presetProbe },
+    })
+    const parsed = JSON.parse(stdout)
+    assert.equal(parsed.hostPath, `${join(resources, 'app.asar')}!${ENTRY_FLAT}`,
+      'process.execPath must anchor <exe dir>/resources/app.asar')
+    assert.equal(parsed.status, 'OK', 'the shipped artifact must match the self-anchored host')
   })
 } finally {
   for (const key of ['DSH_DESKTOP_APP_ASAR', 'DSH_HOST_STANDARD_YML', 'HELMD_PRESET_PATCH', 'HELMD_AUTO_HEAL']) {

@@ -246,8 +246,6 @@
 --dsw-elevation-panel:var(--dsw-elevation-stroke), 0 3px 8px 0 #00000008, 0 0 16px 0 #00000005
 --dsw-elevation-prominent:var(--dsw-elevation-stroke), 0 3px 8px 0 #0000000a, 0 0 20px 0 #0000000d
 --dsw-elevation-soft:var(--dsw-elevation-stroke), 0 4px 16px 0 #00000008, 0 0 24px 0 #00000008
---dsw-elevation-stroke-color:var(--dsw-alias-border-l1)
---dsw-elevation-stroke-color:var(--dsw-alias-border-l2)
 --dsw-elevation-stroke-color:var(--dsw-alias-border-l3)
 --dsw-elevation-stroke-color:var(--dsw-alias-border-l4)
 --dsw-elevation-stroke:0 0 0 .5px var(--dsw-elevation-stroke-color)
@@ -265,6 +263,7 @@
 --dsw-font-base-strong-16-font-weight:500
 --dsw-font-base-strong-16-line-height:24px
 --dsw-font-base-strong-16:500 16px/24px var(--dsw-font-family)
+--dsw-font-family-brand:"Montserrat", var(--dsh-font-family-text-default)
 --dsw-font-family:var(--dsh-font-family-text,var(--dsh-font-family-text-default)), var(--dsh-font-family-text-default)
 --dsw-font-family:var(--dsh-font-family-text-default)
 --dsw-font-l-20-font-family:var(--dsw-font-family)

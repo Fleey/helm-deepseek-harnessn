@@ -4,7 +4,7 @@
 // fixtures/host-standard-<sha>.patch.yml (deduplicated by content; see
 // fixtures/dsh-host-manifest.json). Two contracts are exercised per standard:
 //   1. generation: gen-preset.mjs produces an artifact that passes the runtime
-//      structural assertion (assertPresetArtifact) and keeps the team rows that
+//      structural assertion (assertPresetArtifact) and asserts the team rows are
 //      stand down when the host already runs the official Agent Teams bundle;
 //   2. cross-host repair: an artifact generated for a different host generation
 //      reads HOST_UPGRADED and is regenerated to the target fingerprint.
@@ -15,11 +15,14 @@ import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
-import { distDir, loadArtifacts } from './artifacts.mjs'
+import semver from 'semver'
+import { distDir, distReady } from './artifacts.mjs'
 import { createReporter, skip } from './reporter.mjs'
 
-const seam = await loadArtifacts()
-if (seam === null) skip('preset-cross-host', 'need packages/helmd/dist (run pnpm build)')
+// Needs only the built artifacts: the host standard comes from the committed
+// fixtures and the generator runs as a subprocess, so an installed npm-global
+// dsh is irrelevant here (and its absence must not hide this regression).
+if (!distReady()) skip('preset-cross-host', 'need packages/helmd/dist (run pnpm build)')
 
 const report = createReporter('preset-cross-host')
 const here = dirname(fileURLToPath(import.meta.url))
@@ -40,12 +43,15 @@ assert.ok(standards.length > 1, 'the interval must span more than one host gener
 
 const home = mkdtempSync(join(tmpdir(), 'helmd-cross-host-'))
 const saved = { ...process.env }
-const { assertPresetArtifact } = await import(pathToFileURL(join(distDir, 'health.js')).href)
+const { assertPresetArtifact, evaluateHealth } = await import(pathToFileURL(join(distDir, 'health.js')).href)
 
 const read = (std) => readFileSync(join(fixtures, std.fixture), 'utf8')
 const generate = (std) => {
   const out = join(home, std.sha256.slice(0, 12))
   process.env.DSH_HOST_STANDARD_YML = join(fixtures, std.fixture)
+  // A bare standard fixture carries no host tree to read the version from; pin
+  // it so the Agent Teams row names are chosen as the real host would.
+  process.env.DSH_HOST_VERSION = std.hosts[0]
   execFileSync(process.execPath, [join(here, '..', 'gen-preset.mjs'), '--out', out], {
     encoding: 'utf8',
     env: process.env,
@@ -64,12 +70,9 @@ try {
       assert.equal(verdict.ok, true, `${std.fixture}: ${verdict.detail}`)
     })
 
-    await report.check(`the team rows stand down when the host already runs Agent Teams (${std.hosts[0]}…)`, () => {
-      assert.match(text, /^ {10}- id: tool-agent-team$/m, 'the preset-scoped team tool row must exist')
-      assert.match(text, /disabled: !!js ".*\[\.\.\.\(ctx\.get\('loader'\)/, 'the team tool row must carry the host-standdown condition')
-      assert.match(text, /^    - id: helmd-agent-team$/m, 'the top-level team service row must exist under its own id')
-      assert.match(text, /^ {6}disabled: !!js ".*\[\.\.\.\(ctx\.get\('loader'\)/m, 'the team service row must carry the host-standdown condition')
+    await report.check(`the generated preset declares helmd exactly once (${std.hosts[0]}…)`, () => {
       assert.equal((text.match(/@adwmc\/helm-d/g) ?? []).length, 1, 'helmd must be declared exactly once')
+      assert.doesNotMatch(text, /agent-team/, 'team rows must not be present after the team removal')
     })
   }
 
@@ -87,14 +90,20 @@ try {
     await report.check(`an artifact from ${foreign.hosts[0]}… heals to ${target.hosts[0]}…`, () => {
       writeFileSync(patchPath, generated.get(foreign.sha256), 'utf8')
       process.env.DSH_HOST_STANDARD_YML = join(fixtures, target.fixture)
+      // A real repair reads the target host's version from its tree; a bare
+      // fixture has none, so pin it the way the install path would see it.
+      process.env.DSH_HOST_VERSION = target.hosts[0]
       // evaluateHealth repairs by default (the artifact carries our fingerprint,
       // so provenance is provable) and returns the POST-heal verdict.
-      const base = seam.health.evaluateHealth()
+      const base = evaluateHealth()
       assert.match(base.autoHeal, /^healed \(HOST_UPGRADED → OK\)/, `unexpected verdict: ${base.autoHeal} (status ${base.status})`)
       const healed = readFileSync(patchPath, 'utf8')
       assert.match(healed, new RegExp(`^# gen-preset: host=${hostHash}`), 'the repair must re-anchor the target fingerprint')
       const verdict = assertPresetArtifact(healed, hostText)
       assert.equal(verdict.ok, true, `healed artifact: ${verdict.detail}`)
+      // The team feature is gone: a repaired artifact must carry no Agent Teams
+      // specifier, neither the pre- nor the post-rename name.
+      assert.doesNotMatch(healed, /agent-team/, 'the repair must not re-add team rows')
     })
   }
 
@@ -105,7 +114,7 @@ try {
     process.env.DSH_HOST_STANDARD_YML = join(fixtures, target.fixture)
     process.env.HELMD_AUTO_HEAL = '0'
     try {
-      const base = seam.health.evaluateHealth()
+      const base = evaluateHealth()
       assert.equal(base.status, 'HOST_UPGRADED')
       assert.match(base.autoHeal, /^off \(HELMD_AUTO_HEAL=0\)/, `unexpected verdict: ${base.autoHeal}`)
       assert.equal(readFileSync(patchPath, 'utf8'), generated.get(foreign.sha256), 'report-only must not rewrite the file')
@@ -114,7 +123,7 @@ try {
     }
   })
 } finally {
-  for (const key of ['DSH_HOST_STANDARD_YML', 'HELMD_PRESET_PATCH', 'HELMD_AUTO_HEAL']) {
+  for (const key of ['DSH_HOST_STANDARD_YML', 'DSH_HOST_VERSION', 'HELMD_PRESET_PATCH', 'HELMD_AUTO_HEAL']) {
     if (saved[key] === undefined) delete process.env[key]
     else process.env[key] = saved[key]
   }

@@ -3,10 +3,11 @@
 // a session (exec.agent.id) to its active case dir for convenience.
 
 import { createHash } from 'node:crypto'
-import { createReadStream, existsSync, mkdirSync, readFileSync, unlinkSync, writeFileSync } from 'node:fs'
+import { createReadStream, existsSync, mkdirSync, readFileSync, realpathSync, unlinkSync, writeFileSync } from 'node:fs'
 import { mkdir, copyFile, writeFile, appendFile, readFile, readdir, rename } from 'node:fs/promises'
 import { homedir } from 'node:os'
-import { basename, dirname, join, resolve } from 'node:path'
+import { basename, dirname, isAbsolute, join, resolve } from 'node:path'
+import { assertWithinRoot } from './seam.js'
 
 export interface CaseInfo {
   dir: string
@@ -437,6 +438,8 @@ export interface Finding {
   /** Independent negative-control evidence ids (T-02). */
   negativeEvidenceIds?: string[]
   negativeControl?: string
+  confidenceRationale?: string
+  proofQuotes?: { evidenceId: string; quote: string }[]
   /** PoC recipe/run id linking the finding to T-15 evidence. */
   pocId?: string
   /** Re-hash mismatch against the evidence meta chain (computed on load). */
@@ -461,7 +464,16 @@ export interface FindingInput {
   repro?: string
   negativeEvidenceIds?: string[]
   negativeControl?: string
+  confidenceRationale?: string
+  proofQuotes?: { evidenceId: string; quote: string }[]
   pocId?: string
+}
+
+/** Until a protection-specific verifier exists, recorded evidence is a
+ *  candidate observation, not proof of unpacking or of a named cipher. */
+export function isProtectionFinding(title: string, detail: string, vulnClass?: string): boolean {
+  return /加壳|脱壳|解壳|壳类型|解密算法|解密完成|dump\s*(?:成功|完成)|unpack(?:ed|ing)?|packer|vmprotect|themida|\bupx\b/i
+    .test(`${title} ${detail} ${vulnClass ?? ''}`)
 }
 
 export interface RecordedFinding {
@@ -504,6 +516,10 @@ function normalizeFinding(raw: Partial<Finding> & { title?: string }, index: num
       ? { negativeEvidenceIds: raw.negativeEvidenceIds.map(String) }
       : {}),
     ...(typeof raw.negativeControl === 'string' && raw.negativeControl.trim() !== '' ? { negativeControl: raw.negativeControl } : {}),
+    ...(typeof raw.confidenceRationale === 'string' && raw.confidenceRationale.trim() !== '' ? { confidenceRationale: raw.confidenceRationale } : {}),
+    ...(Array.isArray(raw.proofQuotes) ? { proofQuotes: raw.proofQuotes.filter((item) =>
+      typeof item?.evidenceId === 'string' && typeof item?.quote === 'string'
+    ).map((item) => ({ evidenceId: item.evidenceId, quote: item.quote })) } : {}),
     ...(typeof raw.pocId === 'string' && raw.pocId.trim() !== '' ? { pocId: raw.pocId } : {}),
     ...(raw.stale === true ? { stale: true } : {}),
     ...(typeof raw.repro === 'string' && raw.repro.trim() !== '' ? { repro: raw.repro } : {}),
@@ -565,6 +581,48 @@ export async function loadFindings(caseDir: string): Promise<Finding[]> {
   }
 }
 
+export interface FindingAssessment {
+  evidenceCheck: 'matched' | 'not_assessed' | 'mismatch' | 'stale'
+  reason: string
+  quotes: { evidenceId: string; quote: string; matched: boolean }[]
+}
+
+/** A matched quote proves textual provenance only, never vulnerability impact. */
+export async function assessFindings(caseDir: string): Promise<(Finding & { assessment: FindingAssessment })[]> {
+  const [findings, entries, metas, staleIds] = await Promise.all([
+    loadFindings(caseDir), listEvidence(caseDir), listEvidenceMeta(caseDir), staleEvidenceIds(caseDir),
+  ])
+  const byId = new Map(entries.map((entry) => [entry.id, entry.file]))
+  const metadata = new Map(metas.map((meta) => [meta.id, meta]))
+  const stale = new Set(staleIds)
+  const contents = new Map<string, Promise<string | undefined>>()
+  return Promise.all(findings.map(async (finding) => {
+    const quotes: FindingAssessment['quotes'] = []
+    for (const item of finding.proofQuotes ?? []) {
+      const file = byId.get(item.evidenceId)
+      if (!contents.has(item.evidenceId)) {
+        contents.set(item.evidenceId, file ? readFile(join(caseDir, 'evidence', file), 'utf8').catch(() => undefined) : Promise.resolve(undefined))
+      }
+      const body = await contents.get(item.evidenceId)
+      quotes.push({ evidenceId: item.evidenceId, quote: item.quote,
+        matched: finding.evidenceIds.includes(item.evidenceId) && item.quote.trim().length >= 12
+          && (body?.includes(item.quote) ?? false) })
+    }
+    const cited = [...finding.evidenceIds, ...(finding.negativeEvidenceIds ?? [])]
+    const missing = cited.filter((id) => !byId.has(id) || metadata.get(id)?.file !== byId.get(id))
+    const compromised = finding.stale || cited.some((id) => stale.has(id))
+    const evidenceCheck: FindingAssessment['evidenceCheck'] = compromised ? 'stale'
+      : missing.length > 0 || quotes.some((item) => !item.matched) ? 'mismatch'
+      : quotes.length === 0 ? 'not_assessed' : 'matched'
+    const reason = compromised ? '引用证据的文件哈希已变化，需要重新核对'
+      : missing.length > 0 ? `引用证据文件或哈希记录缺失：${missing.join(', ')}`
+      : evidenceCheck === 'mismatch' ? '引文与指定证据文件不一致或过短'
+      : evidenceCheck === 'not_assessed' ? '未提供可逐字核对的引文；漏洞尚未由机器验证'
+      : '引文与原始证据逐字一致；漏洞可达性和影响仍需独立研判'
+    return { ...finding, assessment: { evidenceCheck, reason, quotes } }
+  }))
+}
+
 async function saveFindings(caseDir: string, findings: Finding[]): Promise<void> {
   await writeFile(findingsPath(caseDir), JSON.stringify(findings, null, 2), 'utf8')
 }
@@ -576,6 +634,9 @@ async function saveFindings(caseDir: string, findings: Finding[]): Promise<void>
  *  - identical vuln class + target + normalized title merges into the existing
  *    finding (evidence union, max severity, seen_count). */
 export async function recordFinding(caseDir: string, input: FindingInput): Promise<RecordedFinding> {
+  if (isProtectionFinding(input.title, input.detail, input.vulnClass) && input.status !== 'candidate') {
+    throw new Error('protection finding requires candidate status until an independent verifier exists')
+  }
   const title = input.title.trim()
   const detail = input.detail.trim()
   if (title === '') throw new Error('finding title is required')
@@ -588,6 +649,16 @@ export async function recordFinding(caseDir: string, input: FindingInput): Promi
   if (negativeEvidenceIds.length > 0) {
     const known = await validateEvidenceIds(caseDir, negativeEvidenceIds)
     if (!known.ok) throw new Error(`unknown negative-control evidence ids: ${known.missing.join(', ')}`)
+  }
+  const proofQuotes = (input.proofQuotes ?? []).map((item) => ({ evidenceId: item.evidenceId?.trim(), quote: item.quote?.trim() }))
+  const files = proofQuotes.length > 0 ? await listEvidence(caseDir) : []
+  for (const item of proofQuotes) {
+    if (!evidenceIds.includes(item.evidenceId) || item.quote.length < 12) {
+      throw new Error('proof quote requires a cited evidence id and at least 12 characters')
+    }
+    const file = files.find((entry) => entry.id === item.evidenceId)?.file
+    const text = file ? await readFile(join(caseDir, 'evidence', file), 'utf8').catch(() => '') : ''
+    if (!text.includes(item.quote)) throw new Error(`proof quote not found in ${item.evidenceId}`)
   }
   const evidenceHash = await evidenceChainHead(caseDir, [...evidenceIds, ...negativeEvidenceIds])
 
@@ -636,6 +707,9 @@ export async function recordFinding(caseDir: string, input: FindingInput): Promi
       existing.negativeEvidenceIds = [...new Set([...(existing.negativeEvidenceIds ?? []), ...negativeEvidenceIds])]
     }
     if (input.negativeControl !== undefined && input.negativeControl.trim() !== '') existing.negativeControl = input.negativeControl.trim()
+    if (input.confidenceRationale?.trim()) existing.confidenceRationale = input.confidenceRationale.trim()
+    if (proofQuotes.length > 0) existing.proofQuotes = [...(existing.proofQuotes ?? []), ...proofQuotes.filter((item) =>
+      !(existing.proofQuotes ?? []).some((old) => old.evidenceId === item.evidenceId && old.quote === item.quote))]
     if (input.pocId !== undefined && input.pocId.trim() !== '') existing.pocId = input.pocId.trim()
     if (evidenceHash !== undefined) existing.evidenceHash = evidenceHash
     if (cvssScore !== undefined) existing.cvss = cvssScore
@@ -672,6 +746,8 @@ export async function recordFinding(caseDir: string, input: FindingInput): Promi
     ...(input.negativeControl !== undefined && input.negativeControl.trim() !== ''
       ? { negativeControl: input.negativeControl.trim() }
       : {}),
+    ...(input.confidenceRationale?.trim() ? { confidenceRationale: input.confidenceRationale.trim() } : {}),
+    ...(proofQuotes.length > 0 ? { proofQuotes } : {}),
     ...(input.pocId !== undefined && input.pocId.trim() !== '' ? { pocId: input.pocId.trim() } : {}),
     ...(input.repro !== undefined && input.repro.trim() !== '' ? { repro: input.repro.trim() } : {}),
     seenCount: 1,
@@ -701,6 +777,9 @@ export async function updateFinding(
   if (finding === undefined) return undefined
   if (patch.status !== undefined) {
     if (!isFindingStatus(patch.status)) throw new Error(`unknown finding status: ${String(patch.status)}`)
+    if (patch.status === 'verified' && isProtectionFinding(finding.title, finding.detail, finding.vulnClass)) {
+      throw new Error('protection finding cannot be verified without an independent verifier')
+    }
     finding.status = patch.status
   }
   if (patch.severity !== undefined) {
@@ -823,21 +902,17 @@ export async function findOpenCaseOnDisk(root?: string): Promise<CaseInfo | unde
   const all = await listCasesOnDisk(root)
   const open = all.find((c) => c.status === 'open')
   if (!open) return undefined
-  return {
-    dir: open.dir,
-    name: open.name,
-    goal: open.goal,
-    mode: open.mode,
-    route: open.route,
-  }
+  return loadCaseInfoFromDisk(open.name, root)
 }
 
 /** Load a specific case by directory or folder name. */
 export async function loadCaseInfoFromDisk(caseDirOrName: string, root?: string): Promise<CaseInfo | undefined> {
   const base = casesRoot(root)
-  const dirPath = caseDirOrName.includes('/') || caseDirOrName.includes('\\')
-    ? resolve(caseDirOrName)
-    : join(base, caseDirOrName)
+  const dirPath = isAbsolute(caseDirOrName) ? resolve(caseDirOrName) : resolve(base, caseDirOrName)
+  try {
+    assertWithinRoot(dirPath, base)
+    if (existsSync(dirPath)) assertWithinRoot(realpathSync(dirPath), realpathSync(base))
+  } catch { return undefined }
   const caseMdPath = join(dirPath, 'CASE.md')
   if (!existsSync(caseMdPath)) return undefined
   try {
